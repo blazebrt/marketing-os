@@ -3,7 +3,8 @@ export type GoogleCreativeItem = {
   original_value: string;
   current_value: string;
   ai_generated: boolean;
-  owner_approved: boolean;
+  owner_approved: boolean | null;
+  rejected?: boolean;
   approved_at?: string | null;
   match_type?: 'EXACT' | 'PHRASE'; 
 };
@@ -26,21 +27,31 @@ export type StrategyRecommendation = {
   safetyConstraints: string[];
 };
 
-export type GoogleTargetState = {
-  provider: 'google';
+export interface GoogleTargetState {
   schemaVersion: 'v1';
-  generatedAt: string;
+  provider: 'google';
   campaign: {
     id: string;
-    owner_id: string;
-    budget_type: string;
-    budget_amount: number;
+    budget: number;
+    duration: number;
     destination: string;
   };
-  strategyRecommendation: StrategyRecommendation;
-  creative: {
-    headlines: GoogleCreativeItem[];
-    descriptions: GoogleCreativeItem[];
-    keywords: GoogleCreativeItem[];
+  bidding: {
+    strategy: 'MANUAL_CPC' | 'MAXIMIZE_CLICKS' | 'MAXIMIZE_CONVERSIONS';
+    confidence: number;
+    reasons: string[];
+    safetyConstraints: string[];
   };
+  adGroup: {
+    name: string;
+    type: string;
+  };
+  keywords: GoogleCreativeItem[];
+  headlines: GoogleCreativeItem[];
+  descriptions: GoogleCreativeItem[];
+  destination: {
+    url: string;
+    tracking: string;
+  };
+  generatedAt: string;
 };

@@ -1,7 +1,10 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { GoogleCreativeItem } from '@/lib/providers/google/types';
-import { Bot, CheckCircle, XCircle } from 'lucide-react';
+import { Bot } from 'lucide-react';
+import { CreativeItemRow } from './CreativeItemRow';
+import { prepareGoogleDeployment } from '@/lib/providers/google/adapter';
+import { GoogleAdsReadOnlyContextProvider } from '@/lib/providers/google/real-context';
 
 export default async function GoogleReviewPage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -14,12 +17,12 @@ export default async function GoogleReviewPage(props: { params: Promise<{ id: st
 
   const { data: campaign } = await supabase
     .from('unified_campaigns')
-    .select('id, creative_id, status')
+    .select('*')
     .eq('id', params.id)
     .single();
 
-  if (!campaign) {
-    return <div>Campaign not found</div>;
+  if (!campaign || campaign.owner_id !== user.id) {
+    return <div>Campaign not found or unauthorized</div>;
   }
 
   let creativeGoogle = null;
@@ -36,6 +39,17 @@ export default async function GoogleReviewPage(props: { params: Promise<{ id: st
   const descriptions: GoogleCreativeItem[] = creativeGoogle?.descriptions || [];
   const keywords: GoogleCreativeItem[] = creativeGoogle?.keywords || [];
 
+  let strategyContext = null;
+  let targetStateError = null;
+  let currentTargetState = null;
+
+  try {
+    const contextProvider = new GoogleAdsReadOnlyContextProvider();
+    strategyContext = await contextProvider.getStrategyContext(user.id);
+  } catch (e: any) {
+    targetStateError = e.message;
+  }
+
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-8">
       <div>
@@ -48,22 +62,25 @@ export default async function GoogleReviewPage(props: { params: Promise<{ id: st
       <div className="bg-white p-6 rounded-lg border shadow-sm space-y-4">
         <div className="flex items-center gap-2 text-lg font-semibold border-b pb-2">
           <Bot className="w-5 h-5 text-blue-500" />
-          Bidding Recommendation: Manual CPC
+          Bidding Recommendation Context
         </div>
-        <div className="space-y-2 text-sm">
-          <p className="font-medium">Why?</p>
-          <ul className="list-disc list-inside text-muted-foreground space-y-1">
-            <li>Not enough conversion history</li>
-            <li>Safer for a new account</li>
-            <li>Conversion tracking does not yet provide enough evidence</li>
-          </ul>
-        </div>
+        {targetStateError ? (
+          <div className="text-red-600 bg-red-50 p-4 rounded border border-red-200">
+            <strong>Error retrieving Google Account Context:</strong> {targetStateError}
+          </div>
+        ) : strategyContext ? (
+          <div className="space-y-2 text-sm">
+            <p><strong>Conversions (30d):</strong> {strategyContext.conversionCount}</p>
+            <p><strong>Account Age (Days):</strong> {strategyContext.accountAgeDays}</p>
+            <p><strong>Tracking Reliability:</strong> {strategyContext.conversionTrackingReliability}</p>
+          </div>
+        ) : null}
       </div>
 
       <div className="space-y-6">
-        <CreativeSection title="Headlines" items={headlines} />
-        <CreativeSection title="Descriptions" items={descriptions} />
-        <CreativeSection title="Keywords" items={keywords} />
+        <CreativeSection title="Headlines" items={headlines} campaignId={campaign.id} creativeId={campaign.creative_id} itemType="headlines" />
+        <CreativeSection title="Descriptions" items={descriptions} campaignId={campaign.id} creativeId={campaign.creative_id} itemType="descriptions" />
+        <CreativeSection title="Keywords" items={keywords} campaignId={campaign.id} creativeId={campaign.creative_id} itemType="keywords" />
       </div>
 
       {campaign.status !== 'READY_TO_DEPLOY' && (
@@ -75,7 +92,19 @@ export default async function GoogleReviewPage(props: { params: Promise<{ id: st
   );
 }
 
-function CreativeSection({ title, items }: { title: string, items: GoogleCreativeItem[] }) {
+function CreativeSection({ 
+  title, 
+  items, 
+  campaignId, 
+  creativeId, 
+  itemType 
+}: { 
+  title: string, 
+  items: GoogleCreativeItem[], 
+  campaignId: string, 
+  creativeId: string,
+  itemType: 'headlines' | 'descriptions' | 'keywords'
+}) {
   if (items.length === 0) {
     return (
       <div className="bg-white p-6 rounded-lg border shadow-sm">
@@ -89,33 +118,14 @@ function CreativeSection({ title, items }: { title: string, items: GoogleCreativ
     <div className="bg-white p-6 rounded-lg border shadow-sm">
       <h2 className="text-xl font-semibold mb-4">{title}</h2>
       <div className="space-y-3">
-        {items.map((item, idx) => (
-          <div key={item.id || idx} className="flex items-center justify-between p-3 bg-slate-50 rounded border">
-            <div className="flex items-center gap-3">
-              <span className="font-medium">{item.current_value}</span>
-              {item.ai_generated && (
-                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full flex items-center gap-1">
-                  <Bot className="w-3 h-3" /> AI
-                </span>
-              )}
-              {item.match_type && (
-                <span className="text-xs bg-slate-200 text-slate-700 px-2 py-1 rounded-full">
-                  {item.match_type}
-                </span>
-              )}
-            </div>
-            <div>
-              {item.owner_approved ? (
-                <span className="flex items-center gap-1 text-sm text-green-600 font-medium">
-                  <CheckCircle className="w-4 h-4" /> Approved
-                </span>
-              ) : (
-                <span className="flex items-center gap-1 text-sm text-amber-600 font-medium">
-                  <XCircle className="w-4 h-4" /> Pending Review
-                </span>
-              )}
-            </div>
-          </div>
+        {items.map((item) => (
+          <CreativeItemRow 
+            key={item.id} 
+            campaignId={campaignId} 
+            creativeId={creativeId} 
+            itemType={itemType} 
+            item={item} 
+          />
         ))}
       </div>
     </div>
