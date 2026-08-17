@@ -124,17 +124,13 @@ export async function requestApproval(campaignId: string) {
   revalidatePath(`/campaigns/${campaignId}`);
 }
 
+
 export async function approveCampaign(campaignId: string) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Unauthorized');
 
-  const verification = await verifyCampaign(campaignId);
-  if (!verification.allPass) {
-    throw new Error('Prelaunch verification failed. Cannot approve.');
-  }
-
-  // Atomic state transition and deployments mapping via RPC
+  // Verify campaign logic is now handled 100% inside the transaction.
   const { data, error } = await supabase.rpc('rpc_approve_campaign', {
     p_campaign_id: campaignId,
     p_owner_id: user.id
@@ -144,9 +140,6 @@ export async function approveCampaign(campaignId: string) {
     throw new Error(error?.message || 'Deployment mapping or state transition failed transactionally.');
   }
 
-  await logAudit(user.id, 'CAMPAIGN_APPROVED', 'campaign', campaignId, null, null, 'Campaign approved explicitly by owner');
-  await logAudit(user.id, 'CAMPAIGN_STATE_CHANGED', 'campaign', campaignId, null, null, 'APPROVED -> READY_TO_DEPLOY');
-  
   revalidatePath('/campaigns');
   revalidatePath(`/campaigns/${campaignId}`);
   return true;
