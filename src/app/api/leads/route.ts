@@ -5,28 +5,44 @@ import { createServiceClient } from '@/lib/supabase/service';
 import { withIdempotency } from '@/lib/idempotency';
 
 export async function POST(req: NextRequest) {
+  let rawBody: string;
   try {
-    const rawBody = await req.text();
-    const { ownerId, provider } = await authenticateWebhook(req, rawBody);
-    
-    const json = JSON.parse(rawBody);
-    const result = LeadIngestionSchema.safeParse(json);
-    
-    if (!result.success) {
-      return NextResponse.json({ error: 'Malformed payload', details: result.error }, { status: 400 });
-    }
-    
+    rawBody = await req.text();
+  } catch {
+    return NextResponse.json({ error: 'invalid_payload' }, { status: 400 });
+  }
+
+  let authResult;
+  try {
+    authResult = await authenticateWebhook(req, rawBody);
+  } catch (authError) {
+    return NextResponse.json({ error: 'webhook_verification_failed' }, { status: 401 });
+  }
+
+  let json;
+  try {
+    json = JSON.parse(rawBody);
+  } catch {
+    return NextResponse.json({ error: 'invalid_payload' }, { status: 400 });
+  }
+
+  const result = LeadIngestionSchema.safeParse(json);
+  if (!result.success) {
+    return NextResponse.json({ error: 'invalid_payload' }, { status: 400 });
+  }
+  
+  try {
     const payload = result.data;
+    const { ownerId, provider } = authResult;
     const serviceClient = createServiceClient();
+    
     const normalizedPhone = payload.phone ? payload.phone.replace(/\D/g, '') : null;
     const normalizedEmail = payload.email ? payload.email.toLowerCase().trim() : null;
-
     const idempotencyKey = `lead_ingest_${provider}_${payload.external_lead_id || payload.session_id || normalizedPhone}`;
 
     const leadId = await withIdempotency(idempotencyKey, ownerId, 'webhook_event', async () => {
       let existingLead = null;
 
-      // 1. Deduplication Check
       if (payload.external_lead_id) {
         const { data } = await serviceClient.from('leads')
           .select('id, status, revenue_amount').eq('owner_id', ownerId).eq('external_lead_id', payload.external_lead_id).single();
@@ -44,11 +60,9 @@ export async function POST(req: NextRequest) {
       }
 
       if (existingLead) {
-        // Idempotent return - do NOT overwrite status or revenue
         return existingLead.id;
       }
 
-      // 2. First-Touch Attribution Lookback
       let attribution = {};
       if (payload.session_id) {
         const { data: interactions } = await serviceClient.from('marketing_interactions')
@@ -76,7 +90,6 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // 3. Insert New Lead (strictly defaults to NEW status, 0 revenue)
       const insertPayload = {
         owner_id: ownerId,
         external_lead_id: payload.external_lead_id,
@@ -92,12 +105,12 @@ export async function POST(req: NextRequest) {
       };
 
       const { data, error } = await serviceClient.from('leads').insert(insertPayload).select('id').single();
-      if (error) throw error;
+      if (error) throw new Error('database_error');
       return data.id;
     });
 
     return NextResponse.json({ success: true, lead_id: leadId });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message || 'Verification Failed' }, { status: 401 });
+    return NextResponse.json({ error: 'request_rejected' }, { status: 400 });
   }
 }

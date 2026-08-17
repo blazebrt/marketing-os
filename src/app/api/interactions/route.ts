@@ -2,25 +2,38 @@ import { NextRequest, NextResponse } from 'next/server';
 import { authenticateWebhook } from '@/lib/webhooks/verify';
 import { InteractionSchema } from '@/lib/schemas/tracking';
 import { createServiceClient } from '@/lib/supabase/service';
-import { logAudit } from '@/lib/audit';
 
 export async function POST(req: NextRequest) {
+  let rawBody: string;
   try {
-    const rawBody = await req.text();
-    const { ownerId } = await authenticateWebhook(req, rawBody);
-    
-    const json = JSON.parse(rawBody);
-    const result = InteractionSchema.safeParse(json);
-    
-    if (!result.success) {
-      return NextResponse.json({ error: 'Malformed payload', details: result.error }, { status: 400 });
-    }
+    rawBody = await req.text();
+  } catch {
+    return NextResponse.json({ error: 'invalid_payload' }, { status: 400 });
+  }
 
+  let authResult;
+  try {
+    authResult = await authenticateWebhook(req, rawBody);
+  } catch (authError) {
+    return NextResponse.json({ error: 'webhook_verification_failed' }, { status: 401 });
+  }
+
+  let json;
+  try {
+    json = JSON.parse(rawBody);
+  } catch {
+    return NextResponse.json({ error: 'invalid_payload' }, { status: 400 });
+  }
+
+  const result = InteractionSchema.safeParse(json);
+  if (!result.success) {
+    return NextResponse.json({ error: 'invalid_payload' }, { status: 400 });
+  }
+
+  try {
     const serviceClient = createServiceClient();
-
-    // Idempotent upsert based on owner, session, and type
     const { error } = await serviceClient.from('marketing_interactions').upsert({
-      owner_id: ownerId,
+      owner_id: authResult.ownerId,
       session_id: result.data.session_id,
       interaction_type: result.data.interaction_type,
       source: result.data.source,
@@ -37,11 +50,11 @@ export async function POST(req: NextRequest) {
     }, { onConflict: 'owner_id, session_id, interaction_type' });
 
     if (error) {
-      throw error;
+      throw new Error('database_error');
     }
 
     return NextResponse.json({ success: true, session_id: result.data.session_id });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message || 'Verification Failed' }, { status: 401 });
+    return NextResponse.json({ error: 'request_rejected' }, { status: 400 });
   }
 }

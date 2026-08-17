@@ -17,7 +17,6 @@ export async function verifyHmac(payload: string, signature: string, secret: str
   try {
     return crypto.timingSafeEqual(Buffer.from(signature, 'hex'), Buffer.from(expectedMac, 'hex'));
   } catch (e) {
-    // Fails safely if length mismatch
     return false;
   }
 }
@@ -25,23 +24,21 @@ export async function verifyHmac(payload: string, signature: string, secret: str
 export async function authenticateWebhook(req: NextRequest, rawBody: string): Promise<{ ownerId: string; provider: string }> {
   const signature = req.headers.get('x-signature');
   const timestamp = req.headers.get('x-timestamp');
-  const ownerId = req.headers.get('x-owner-id');
-  const provider = req.headers.get('x-provider') || 'website';
+  const integrationId = req.headers.get('x-integration-id'); // Replaced insecure x-owner-id
 
-  if (!signature || !timestamp || !ownerId) {
-    throw new Error('Missing required webhook authentication headers');
+  if (!signature || !timestamp || !integrationId) {
+    throw new Error('missing_headers');
   }
 
   const serviceClient = createServiceClient();
   const { data, error } = await serviceClient
     .from('integration_credentials')
-    .select('encrypted_credentials')
-    .eq('owner_id', ownerId)
-    .eq('provider', provider)
+    .select('owner_id, provider, encrypted_credentials')
+    .eq('id', integrationId)
     .single();
 
   if (error || !data) {
-    throw new Error('Integration not found or not connected');
+    throw new Error('integration_not_found');
   }
 
   const credsStr = decryptCredential(data.encrypted_credentials);
@@ -49,14 +46,15 @@ export async function authenticateWebhook(req: NextRequest, rawBody: string): Pr
   const secret = creds.hmac_secret;
 
   if (!secret) {
-    throw new Error('Integration lacks HMAC secret configuration');
+    throw new Error('missing_secret');
   }
 
   const isValid = await verifyHmac(rawBody, signature, secret, timestamp);
   
   if (!isValid) {
-    throw new Error('Invalid cryptographic signature or replayed request');
+    throw new Error('invalid_signature');
   }
 
-  return { ownerId, provider };
+  // Safely resolve the owner ID entirely server-side based on the verified integration
+  return { ownerId: data.owner_id, provider: data.provider };
 }
