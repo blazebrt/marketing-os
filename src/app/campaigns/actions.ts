@@ -14,7 +14,6 @@ export async function saveDraftCampaign(payload: any) {
   const parsed = CampaignIntentSchema.parse(payload);
   const limits = calculateSafetyLimits(parsed.budget_type, parsed.budget_amount, parsed.duration_days);
 
-  // NO mock creative ID injected here. We pass exactly what the client sends (undefined or null is fine).
   const { data, error } = await supabase.from('unified_campaigns').insert({
     owner_id: user.id,
     service: parsed.service,
@@ -26,7 +25,7 @@ export async function saveDraftCampaign(payload: any) {
     max_campaign_spend: limits.maxTotal,
     destination: parsed.destination,
     channels: parsed.channels,
-    creative_id: parsed.creative_id || null, 
+    creative_id: null, // UI removed it, force null
     status: 'DRAFT'
   }).select('id').single();
 
@@ -46,7 +45,6 @@ export async function verifyCampaign(campaignId: string) {
 
   const checks = [];
   
-  // 1. Budget & Duration Safety checks
   try {
     calculateSafetyLimits(campaign.budget_type, Number(campaign.budget_amount), campaign.duration_days);
     checks.push({ name: 'Budget & Duration', pass: true, message: 'Budget and duration are within configured safety bounds' });
@@ -54,7 +52,6 @@ export async function verifyCampaign(campaignId: string) {
     checks.push({ name: 'Budget & Duration', pass: false, message: e.message });
   }
 
-  // 2. Creative Check (Requires real DB record)
   if (!campaign.creative_id) {
     checks.push({ name: 'Creative', pass: false, message: 'No creative attached' });
   } else {
@@ -66,14 +63,12 @@ export async function verifyCampaign(campaignId: string) {
     }
   }
 
-  // 3. Destination Check
   if (campaign.destination) {
     checks.push({ name: 'Destination', pass: true, message: 'Destination configured' });
   } else {
     checks.push({ name: 'Destination', pass: false, message: 'Missing destination' });
   }
 
-  // 4. Integrations & Channels Check (Using safe metadata table)
   const { data: creds } = await supabase.from('integrations').select('provider').eq('owner_id', user.id).eq('status', 'connected');
   const connectedProviders = creds?.map((c: any) => c.provider.toLowerCase()) || [];
   
@@ -89,7 +84,6 @@ export async function verifyCampaign(campaignId: string) {
     }
   }
 
-  // 5. Tracking Readiness Check
   if (campaign.destination?.toLowerCase().includes('website')) {
     if (connectedProviders.includes('website')) {
       checks.push({ name: 'Tracking Readiness', pass: true, message: 'Website tracking integration is active' });
@@ -116,7 +110,6 @@ export async function requestApproval(campaignId: string) {
     throw new Error('Prelaunch verification failed. Cannot request approval.');
   }
 
-  // Atomic state transition: DRAFT -> PENDING_APPROVAL
   const { error, data } = await supabase.from('unified_campaigns')
     .update({ status: 'PENDING_APPROVAL', updated_at: new Date().toISOString() })
     .eq('id', campaignId)
@@ -136,52 +129,24 @@ export async function approveCampaign(campaignId: string) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Unauthorized');
 
-  // Verify again before final approval
   const verification = await verifyCampaign(campaignId);
   if (!verification.allPass) {
     throw new Error('Prelaunch verification failed. Cannot approve.');
   }
 
-  // Atomic state transition: PENDING_APPROVAL -> APPROVED
-  const { data: approvedData, error: approvedError } = await supabase.from('unified_campaigns')
-    .update({ status: 'APPROVED', updated_at: new Date().toISOString() })
-    .eq('id', campaignId)
-    .eq('owner_id', user.id)
-    .eq('status', 'PENDING_APPROVAL')
-    .select('channels, status').single();
+  // Atomic state transition and deployments mapping via RPC
+  const { data, error } = await supabase.rpc('rpc_approve_campaign', {
+    p_campaign_id: campaignId,
+    p_owner_id: user.id
+  });
 
-  if (approvedError || !approvedData) {
-    throw new Error('State transition to APPROVED failed (must be in PENDING_APPROVAL state)');
+  if (error || !data?.success) {
+    throw new Error(error?.message || 'Deployment mapping or state transition failed transactionally.');
   }
 
   await logAudit(user.id, 'CAMPAIGN_APPROVED', 'campaign', campaignId, null, null, 'Campaign approved explicitly by owner');
-
-  // Safely create independent deployments idempotently
-  if (approvedData.channels) {
-    for (const provider of approvedData.channels) {
-      try {
-        await supabase.from('channel_deployments').insert({
-          campaign_id: campaignId,
-          owner_id: user.id,
-          provider: provider.toLowerCase(),
-          status: 'PENDING'
-        });
-      } catch (e) {
-         // Silently catch duplicate insertion errors due to unique constraints for idempotency
-      }
-    }
-  }
-
-  // Final transition: APPROVED -> READY_TO_DEPLOY
-  const { error: readyError } = await supabase.from('unified_campaigns')
-    .update({ status: 'READY_TO_DEPLOY', updated_at: new Date().toISOString() })
-    .eq('id', campaignId)
-    .eq('owner_id', user.id)
-    .eq('status', 'APPROVED');
-
-  if (readyError) throw new Error('State transition to READY_TO_DEPLOY failed');
-
   await logAudit(user.id, 'CAMPAIGN_STATE_CHANGED', 'campaign', campaignId, null, null, 'APPROVED -> READY_TO_DEPLOY');
+  
   revalidatePath('/campaigns');
   revalidatePath(`/campaigns/${campaignId}`);
   return true;

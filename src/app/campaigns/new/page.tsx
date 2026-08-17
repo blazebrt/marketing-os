@@ -17,8 +17,7 @@ export default function NewCampaignWizard() {
     budget_amount: '',
     duration_days: '30',
     channels: [] as string[],
-    destination: '',
-    creative_id: '' // Start empty, force explicit assignment if any
+    destination: ''
   });
 
   const update = (key: string, val: any) => setForm(prev => ({ ...prev, [key]: val }));
@@ -30,11 +29,9 @@ export default function NewCampaignWizard() {
       const payload: any = {
         ...form,
         budget_amount: Number(form.budget_amount),
-        duration_days: Number(form.duration_days)
+        duration_days: Number(form.duration_days),
+        creative_id: null
       };
-      
-      // Remove empty creative_id to allow DB null
-      if (!payload.creative_id) payload.creative_id = undefined;
 
       const id = await saveDraftCampaign(payload);
       router.push(`/campaigns/${id}`);
@@ -185,8 +182,8 @@ export default function NewCampaignWizard() {
               <span className="font-medium">{form.destination}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-500">Creative ID (Optional Test)</span>
-              <input type="text" className="border px-2 text-xs" value={form.creative_id} onChange={e => update('creative_id', e.target.value)} placeholder="UUID" />
+              <span className="text-gray-500">Creative</span>
+              <span className="font-medium text-red-600">No creative selected (Required before approval)</span>
             </div>
           </div>
           <button onClick={submit} disabled={loading} className="w-full bg-black text-white p-3 rounded mt-6">
