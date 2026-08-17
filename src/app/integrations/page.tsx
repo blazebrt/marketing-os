@@ -6,14 +6,16 @@ export default async function IntegrationsPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return redirect('/login');
 
+  // Client securely fetches ONLY metadata.
+  // Credentials do not exist in this table anymore.
   const { data: integrations } = await supabase
     .from('integrations')
-    .select('provider, status, updated_at')
+    .select('provider, status, external_id, last_verified_at, error_message')
     .eq('owner_id', user.id);
 
-  const getStatus = (provider: string) => {
+  const getMetadata = (provider: string): any => {
     const int = integrations?.find(i => i.provider === provider);
-    return int?.status || 'disconnected';
+    return int || { status: 'disconnected', external_id: null, error_message: null };
   };
 
   const providers = [
@@ -27,17 +29,21 @@ export default async function IntegrationsPage() {
   return (
     <div className="p-8 max-w-4xl mx-auto">
       <h1 className="text-2xl font-bold mb-6">Integrations</h1>
-      <p className="mb-8 text-gray-600">Securely connect your advertising and tracking channels. Credentials are encrypted server-side and never exposed.</p>
+      <p className="mb-8 text-gray-600">Securely connect your advertising and tracking channels. Credentials are encrypted server-side and never exposed to the browser.</p>
       
       <div className="space-y-4">
         {providers.map(p => {
-          const status = getStatus(p.id);
+          const meta = getMetadata(p.id);
+          const status = meta.status;
           return (
             <div key={p.id} className="border p-6 rounded-lg flex items-center justify-between bg-white shadow-sm">
               <div>
                 <h3 className="font-semibold text-lg">{p.name}</h3>
                 <p className="text-gray-500 text-sm">{p.description}</p>
                 {p.testAccounts && <p className="text-xs text-blue-500 mt-1">V1 Bound to: {p.testAccounts}</p>}
+                
+                {meta.external_id && <p className="text-sm font-medium mt-2 text-green-700">Account: {meta.external_id}</p>}
+                {meta.error_message && <p className="text-sm font-medium mt-2 text-red-600">Error: {meta.error_message}</p>}
               </div>
               <div className="flex items-center gap-4">
                 <span className={`px-3 py-1 rounded-full text-xs font-medium ${
