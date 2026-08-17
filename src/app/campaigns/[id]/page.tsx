@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
-import { verifyCampaign, approveCampaign } from '../actions';
+import { verifyCampaign, requestApproval, approveCampaign } from '../actions';
 
 export default async function CampaignDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = await params;
@@ -16,7 +16,8 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
   const { data: deployments } = await supabase.from('channel_deployments').select('*').eq('campaign_id', id);
 
   let verification: any = null;
-  if (campaign.status === 'DRAFT') {
+  if (campaign.status === 'DRAFT' || campaign.status === 'PENDING_APPROVAL') {
+    // We run verification dynamically on render for these states to show the user the status
     verification = await verifyCampaign(id);
   }
 
@@ -44,7 +45,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
         </div>
       </div>
 
-      {campaign.status === 'DRAFT' && verification && (
+      {(campaign.status === 'DRAFT' || campaign.status === 'PENDING_APPROVAL') && verification && (
         <div className="mb-8 border p-6 rounded-lg bg-white shadow-sm">
           <h2 className="text-xl font-bold mb-4">Pre-launch Verification</h2>
           <ul className="space-y-2 mb-6">
@@ -59,15 +60,24 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           </ul>
           
           {verification.allPass ? (
-            <form action={async () => {
-              'use server';
-              await approveCampaign(id);
-            }}>
-              <button className="bg-black text-white px-6 py-3 rounded-lg font-medium">Approve & Prepare</button>
-            </form>
+            campaign.status === 'DRAFT' ? (
+              <form action={async () => {
+                'use server';
+                await requestApproval(id);
+              }}>
+                <button className="bg-black text-white px-6 py-3 rounded-lg font-medium">Submit for Approval</button>
+              </form>
+            ) : (
+              <form action={async () => {
+                'use server';
+                await approveCampaign(id);
+              }}>
+                <button className="bg-green-600 text-white px-6 py-3 rounded-lg font-medium">Approve Campaign</button>
+              </form>
+            )
           ) : (
             <div className="p-4 bg-red-50 text-red-700 rounded border border-red-100">
-              Please fix the issues above before you can approve this campaign.
+              Please fix the issues above before this campaign can progress.
             </div>
           )}
         </div>

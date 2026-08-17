@@ -18,7 +18,7 @@ export default function NewCampaignWizard() {
     duration_days: '30',
     channels: [] as string[],
     destination: '',
-    creative_id: 'auto-select'
+    creative_id: '' // Start empty, force explicit assignment if any
   });
 
   const update = (key: string, val: any) => setForm(prev => ({ ...prev, [key]: val }));
@@ -27,11 +27,15 @@ export default function NewCampaignWizard() {
     try {
       setLoading(true);
       setError('');
-      const payload = {
+      const payload: any = {
         ...form,
         budget_amount: Number(form.budget_amount),
         duration_days: Number(form.duration_days)
       };
+      
+      // Remove empty creative_id to allow DB null
+      if (!payload.creative_id) payload.creative_id = undefined;
+
       const id = await saveDraftCampaign(payload);
       router.push(`/campaigns/${id}`);
     } catch (e: any) {
@@ -176,13 +180,17 @@ export default function NewCampaignWizard() {
               <span className="text-gray-500">Channels</span>
               <span className="font-medium">{form.channels.join(', ')}</span>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between border-b pb-2">
               <span className="text-gray-500">Destination</span>
               <span className="font-medium">{form.destination}</span>
             </div>
+            <div className="flex justify-between">
+              <span className="text-gray-500">Creative ID (Optional Test)</span>
+              <input type="text" className="border px-2 text-xs" value={form.creative_id} onChange={e => update('creative_id', e.target.value)} placeholder="UUID" />
+            </div>
           </div>
           <button onClick={submit} disabled={loading} className="w-full bg-black text-white p-3 rounded mt-6">
-            {loading ? 'Creating...' : 'Create Draft & Proceed to Review'}
+            {loading ? 'Creating...' : 'Create Draft & Proceed to Verification'}
           </button>
         </div>
       )}
