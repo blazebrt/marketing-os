@@ -8,13 +8,22 @@ declare
     v_requested_providers text[];
     v_deployed_providers text[];
     v_missing_integrations int;
+    
+    v_calc_daily numeric(15, 2);
+    v_calc_total numeric(15, 2);
 begin
     -- 1. Security & Identity
     v_uid := auth.uid();
-    if v_uid is not null and v_uid != p_owner_id then
-        raise exception 'Unauthorized: caller UID does not match requested owner_id';
+    
+    if v_uid is null then
+        raise exception 'Unauthorized: No authenticated user';
     end if;
-    v_owner_id := coalesce(v_uid, p_owner_id);
+    
+    if v_uid != p_owner_id then
+        raise exception 'Unauthorized: Caller UID does not match requested owner_id';
+    end if;
+    
+    v_owner_id := v_uid;
 
     -- 2. Lock Campaign
     select * into v_campaign
@@ -31,16 +40,55 @@ begin
     end if;
 
     -- 3. Strict Prelaunch Transactional Validation (TOCTOU protection)
+    
+    -- Budget & Duration Safety Validation
     if v_campaign.budget_amount <= 0 then
-        raise exception 'Budget must be greater than zero';
+        raise exception 'Negative or zero budget';
     end if;
+    
     if v_campaign.duration_days <= 0 then
-        raise exception 'Duration must be greater than zero';
+        raise exception 'Invalid duration';
     end if;
+    
+    if v_campaign.budget_type not in ('daily', 'total') then
+        raise exception 'Invalid budget type';
+    end if;
+    
+    -- Calculate expected limits
+    if v_campaign.budget_type = 'daily' then
+        v_calc_daily := v_campaign.budget_amount;
+        v_calc_total := v_campaign.budget_amount * v_campaign.duration_days;
+    else
+        v_calc_total := v_campaign.budget_amount;
+        v_calc_daily := v_campaign.budget_amount / v_campaign.duration_days;
+    end if;
+    
+    -- Enforce absolute system safety ceilings
+    if v_calc_daily > 50000 then
+        raise exception 'Daily spend exceeds safety limit';
+    end if;
+    if v_calc_total > 500000 then
+        raise exception 'Total spend exceeds safety limit';
+    end if;
+    
+    -- Reject inconsistent/tampered stored limits
+    if v_campaign.max_daily_spend != v_calc_daily then
+        raise exception 'Tampered max_daily_spend';
+    end if;
+    if v_campaign.max_campaign_spend != v_calc_total then
+        raise exception 'Tampered max_campaign_spend';
+    end if;
+    if coalesce(v_campaign.max_auto_budget_increase, 0) != 0 then
+        raise exception 'Tampered max_auto_budget_increase';
+    end if;
+
+    -- Creative and Destination Validation
     if v_campaign.creative_id is null then
         raise exception 'Creative must be assigned';
     end if;
-    if not exists (select 1 from public.creatives where id = v_campaign.creative_id and owner_id = v_owner_id) then
+    -- Note: creative_id references public.creatives which uses uuid, but schema could use text. 
+    -- Assuming UUID cast for strictness since we are validating ownership:
+    if not exists (select 1 from public.creatives where id = v_campaign.creative_id::uuid and owner_id = v_owner_id) then
         raise exception 'Creative not found or unauthorized';
     end if;
     if coalesce(v_campaign.destination, '') = '' then
