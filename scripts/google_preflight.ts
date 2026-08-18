@@ -82,7 +82,7 @@ export async function runPreflight() {
 
     return true;
   } catch (err: any) {
-    throw new Error('FAIL CLOSED: Preflight failed: ' + err.message);
+    throw new Error('PREFLIGHT_FAILED');
   }
 }
 

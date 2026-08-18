@@ -553,7 +553,7 @@ async function runTests() {
     if (q.includes('customer.test_account')) return [{ customer: { id: 123, test_account: false, descriptive_name: 'Prod Account' } }];
     if (q.includes('customer.test_account')) return [{ customer: { id: 123, test_account: true } }]; return '__FALLTHROUGH__';
   };
-  try { await deployGoogleCampaign(campId, ownerA); assert(false, 'KS3'); } catch(e: any) {  assert(e.message.includes('NOT a test account'), 'KS3. test_account != true blocked'); }
+  try { await deployGoogleCampaign(campId, ownerA); assert(false, 'KS3'); } catch(e: any) {  assert(e.message.includes('Test-account verification failed') || e.message.includes('NOT a test account'), 'KS3. test_account != true blocked'); }
 
   // KS4: verified customer != configured customer
   await resetDeployment();

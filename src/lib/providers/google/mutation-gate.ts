@@ -51,7 +51,7 @@ export async function authorizeGoogleTestMutation(
       process.env.GOOGLE_ADS_TEST_MANAGER_ID!
     );
   } catch (err: any) {
-    throw new GoogleProviderError('REAL_TEST_MUTATION_NOT_AUTHORIZED', 'verifyTestAccount failed: ' + err.message);
+    throw new GoogleProviderError('REAL_TEST_MUTATION_NOT_AUTHORIZED', 'Test-account verification failed.');
   }
 
   // verified customer === GOOGLE_ADS_TEST_CUSTOMER_ID
