@@ -5,6 +5,7 @@ import { Bot } from 'lucide-react';
 import { CreativeItemRow } from './CreativeItemRow';
 import { prepareGoogleDeployment } from '@/lib/providers/google/adapter';
 import { GoogleAdsReadOnlyContextProvider } from '@/lib/providers/google/real-context';
+import { DeploymentPanel } from './DeploymentPanel';
 
 export default async function GoogleReviewPage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -50,6 +51,17 @@ export default async function GoogleReviewPage(props: { params: Promise<{ id: st
     targetStateError = e.message;
   }
 
+  let deploymentState = null;
+  const { data: depData } = await supabase
+    .from('channel_deployments')
+    .select('*')
+    .eq('campaign_id', campaign.id)
+    .eq('provider', 'google')
+    .single();
+  if (depData) {
+    deploymentState = depData;
+  }
+
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-8">
       <div>
@@ -83,10 +95,18 @@ export default async function GoogleReviewPage(props: { params: Promise<{ id: st
         <CreativeSection title="Keywords" items={keywords} campaignId={campaign.id} creativeId={campaign.creative_id} itemType="keywords" />
       </div>
 
-      {campaign.status !== 'READY_TO_DEPLOY' && (
+      {campaign.status !== 'READY_TO_DEPLOY' && !deploymentState?.status && (
         <div className="bg-yellow-50 text-yellow-800 p-4 rounded-md border border-yellow-200">
           Campaign must be approved before final deployment prep can occur. Current status: {campaign.status}
         </div>
+      )}
+
+      {(campaign.status === 'READY_TO_DEPLOY' || deploymentState) && (
+        <DeploymentPanel 
+          campaignId={campaign.id} 
+          status={campaign.status} 
+          deploymentState={deploymentState} 
+        />
       )}
     </div>
   );

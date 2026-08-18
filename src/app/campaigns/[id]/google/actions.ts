@@ -89,3 +89,26 @@ export async function updateGoogleCreativeItem(
   revalidatePath(`/campaigns/${campaignId}/google`);
   return { success: true };
 }
+
+import { deployGoogleCampaign } from '@/lib/providers/google/deployment';
+import { reconcileGoogleDeployment } from '@/lib/providers/google/reconciliation';
+
+export async function deployToTestAccount(campaignId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Unauthorized');
+
+  await deployGoogleCampaign(campaignId, user.id);
+  revalidatePath(`/campaigns/${campaignId}/google`);
+  return { success: true };
+}
+
+export async function reconcileDeployment(campaignId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Unauthorized');
+
+  const result = await reconcileGoogleDeployment(campaignId, user.id);
+  revalidatePath(`/campaigns/${campaignId}/google`);
+  return result;
+}
