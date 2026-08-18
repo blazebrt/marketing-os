@@ -2,6 +2,7 @@ import { PGlite } from '@electric-sql/pglite';
 import crypto from 'crypto';
 import { deployGoogleCampaign } from '../src/lib/providers/google/deployment';
 import { __setMockGoogleAdsApi } from '../src/lib/providers/google/client';
+import { __setMockGoogleAdsApi as __setMockReconciliationApi } from '../src/lib/providers/google/reconciliation';
 import { encryptCredential } from '../src/lib/crypto';
 import * as testAccount from '../src/lib/providers/google/test-account';
 
@@ -39,11 +40,13 @@ async function runTests() {
     );
     create table public.unified_campaigns (
       id uuid primary key default gen_random_uuid(), owner_id uuid not null, name text not null default 'Test',
-      budget_amount numeric not null default 1000, duration_days int not null default 30
+      budget_amount numeric not null default 1000, duration_days int not null default 30,
+      budget_type text not null default 'DAILY', max_daily_spend numeric default 1000,
+      max_campaign_spend numeric default 30000, max_auto_budget_increase boolean default false
     );
     create table public.channel_deployments (
       id uuid primary key default gen_random_uuid(), campaign_id uuid not null, owner_id uuid not null,
-      provider text not null, status text not null default 'PENDING', target_state jsonb not null default '{}'::jsonb,
+      provider text not null, status text not null default 'READY_TO_DEPLOY', target_state jsonb not null default '{}'::jsonb,
       external_state jsonb not null default '{}'::jsonb, failure_code text, failure_stage text,
       reconciliation_status text, locked_at timestamptz, locked_by text
     );
@@ -71,6 +74,11 @@ async function runTests() {
           update: (obj: any) => { isUpdate = true; data = obj; return chain; },
           insert: (obj: any) => { isInsert = true; data = obj; return chain; },
           eq: (col: string, val: any) => { params.push(val); conditions.push(`${col}=$${params.length}`); return chain; },
+          in: (col: string, vals: any[]) => {
+            const placeholders = vals.map(v => { params.push(v); return `$${params.length}`; }).join(',');
+            conditions.push(`${col} IN (${placeholders})`);
+            return chain;
+          },
           single: async () => {
             if (conditions.length > 0) queryStr += ' WHERE ' + conditions.join(' AND ');
             const res = await db.query(queryStr, params);
@@ -119,7 +127,12 @@ async function runTests() {
   };
 
   const mockServiceModule = require('../src/lib/supabase/service');
-  mockServiceModule.createServiceClient = async () => createMockServiceClient();
+  mockServiceModule.__setMockServiceClient(async () => createMockServiceClient());
+  
+  const mockServerModule = require('../src/lib/supabase/server');
+  mockServerModule.__setMockCreateClient(async () => ({
+    auth: { getUser: async () => ({ data: { user: { id: ownerA } }, error: null }) }
+  }));
   const mockAuditModule = require('../src/lib/audit');
   mockAuditModule.__setMockLogAudit(async (actor: string, action: string, type: string, id: string, before: any, after: any, reason: string) => {
     await db.query("INSERT INTO public.audit_logs (owner_id, action, resource_type, resource_id, details) VALUES ($1, $2, $3, $4, $5)", [actor, action, type, id, JSON.stringify({ before, after, reason })]);
@@ -133,11 +146,33 @@ async function runTests() {
   // Mock Google Ads Client
   let mutatedResources: string[] = [];
   let shouldFailAt: string | null = null;
+  let existingRemoteResources: any = {};
   class MockCustomer {
+    async query(q: string) {
+      if (q.includes('test_account')) return [{ customer: { test_account: true } }];
+      if (q.includes('campaign_budget.name')) return existingRemoteResources.budget ? [{ campaign_budget: { resource_name: existingRemoteResources.budget } }] : [];
+      if (q.includes('campaign.name') && !q.includes('campaign.status')) return existingRemoteResources.campaign ? [{ campaign: { resource_name: existingRemoteResources.campaign } }] : [];
+      if (q.includes('ad_group.name') && !q.includes('ad_group.type')) return existingRemoteResources.adGroup ? [{ ad_group: { resource_name: existingRemoteResources.adGroup } }] : [];
+      if (q.includes('responsive_search_ad.headlines')) return [{ ad_group_ad: { ad: { final_urls: ['https://example.com'], responsive_search_ad: { headlines: [{text: 'H1'}] } } } }];
+      if (q.includes('ad_group_ad.ad.resource_name')) return existingRemoteResources.ad ? [{ ad_group_ad: { ad: { resource_name: existingRemoteResources.ad } } }] : [];
+      if (q.includes('ad_group_criterion.keyword.text')) return [{ ad_group_criterion: { keyword: { text: 'K1', match_type: 'EXACT' } } }];
+      if (q.includes('ad_group_criterion.type')) return existingRemoteResources.keyword ? [{ ad_group_criterion: { resource_name: existingRemoteResources.keyword } }] : [];
+      if (q.includes('bidding_strategy_type')) return [{ campaign: { name: 'Test', bidding_strategy_type: 'MANUAL_CPC' }, campaign_budget: { amount_micros: 1000 * 1000000 } }];
+      if (q.includes('ad_group.type')) return [{ ad_group: { name: 'Ad Group 1' }, campaign: { resource_name: existingRemoteResources.campaign || 'c1' } }];
+      return [];
+    }
     async mutateResources(ops: any[]) {
       if (shouldFailAt === ops[0].entity) throw new Error(`Simulated failure for ${ops[0].entity}`);
       const resourceName = `customers/123/${ops[0].entity}s/mock-${crypto.randomUUID()}`;
       mutatedResources.push(resourceName);
+      
+      // Update existing resources so reconciliation finds them!
+      if (ops[0].entity === 'campaign_budget') existingRemoteResources.budget = resourceName;
+      if (ops[0].entity === 'campaign') existingRemoteResources.campaign = resourceName;
+      if (ops[0].entity === 'ad_group') existingRemoteResources.adGroup = resourceName;
+      if (ops[0].entity === 'ad_group_ad') existingRemoteResources.ad = resourceName;
+      if (ops[0].entity === 'ad_group_criterion') existingRemoteResources.keyword = resourceName;
+
       return [{ mutated_resource_name: resourceName }];
     }
   }
@@ -146,6 +181,7 @@ async function runTests() {
     Customer() { return new MockCustomer(); }
   }
   __setMockGoogleAdsApi(MockGoogleAdsApi);
+  __setMockReconciliationApi(MockGoogleAdsApi);
 
   const tokens = { access_token: encryptCredential('a'), refresh_token: encryptCredential('b') };
   await db.query("INSERT INTO public.integration_credentials (owner_id, provider, encrypted_credentials) VALUES ($1, 'google', $2)", [ownerA, JSON.stringify(tokens)]);
@@ -153,7 +189,7 @@ async function runTests() {
   // Helpers
   const createCampaign = async (budget: number) => {
     const id = crypto.randomUUID();
-    await db.query("INSERT INTO public.unified_campaigns (id, owner_id, budget_amount) VALUES ($1, $2, $3)", [id, ownerA, budget]);
+    await db.query("INSERT INTO public.unified_campaigns (id, owner_id, budget_amount, max_daily_spend, max_campaign_spend) VALUES ($1, $2, $3, $3, $4)", [id, ownerA, budget, budget * 30]);
     return id;
   };
 
@@ -195,11 +231,16 @@ async function runTests() {
 
   // TEST: Successful deployment creates resources and marks ACTIVE
   {
+    existingRemoteResources = {};
     const campId = await createCampaign(1000);
     await createDeployment(campId, validTargetState);
     mutatedResources = [];
     
-    await deployGoogleCampaign(campId, ownerA);
+    try { await deployGoogleCampaign(campId, ownerA); }
+    catch(e) { console.error(e); }
+    const audits = await db.query("SELECT details FROM public.audit_logs WHERE action='GOOGLE_RECONCILIATION_COMPLETED'");
+    require('fs').writeFileSync('differences.log', JSON.stringify(audits.rows, null, 2));
+
     const depResult = await db.query("SELECT * FROM public.channel_deployments WHERE campaign_id = $1", [campId]);
     const dep: any = depResult.rows[0];
 
@@ -210,6 +251,7 @@ async function runTests() {
 
   // TEST: Partial failure stops pipeline and marks FAILED
   {
+    existingRemoteResources = {};
     const campId = await createCampaign(1000);
     await createDeployment(campId, validTargetState);
     mutatedResources = [];
@@ -222,6 +264,8 @@ async function runTests() {
     const depResult = await db.query("SELECT * FROM public.channel_deployments WHERE campaign_id = $1", [campId]);
     const dep: any = depResult.rows[0];
 
+    console.log('Test Partial Failure:', { failed, dep, mutatedResources });
+
     assert(failed && dep.status === 'FAILED', 'Partial deployment becomes FAILED');
     assert(dep.reconciliation_status === 'REQUIRED', 'Failed deployment becomes RECONCILIATION_REQUIRED');
     assert(mutatedResources.length === 2, 'Pipeline stopped exactly at failure (Budget and Campaign created)');
@@ -230,6 +274,7 @@ async function runTests() {
 
   // TEST: Idempotency recovery
   {
+    existingRemoteResources = { budget: 'budg', campaign: 'camp' };
     const campId = await createCampaign(1000);
     await createDeployment(campId, validTargetState);
     

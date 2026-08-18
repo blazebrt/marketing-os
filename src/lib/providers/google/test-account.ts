@@ -11,7 +11,7 @@ export async function verifyTestAccount(
   clientSecret: string,
   customerId: string,
   managerId: string
-): Promise<void> {
+): Promise<string> {
   if (process.env.GOOGLE_ADS_EXECUTION_MODE !== 'test') {
     throw new GoogleProviderError(
       ERROR_CODES.TEST_ACCOUNT_REQUIRED,
@@ -58,6 +58,8 @@ export async function verifyTestAccount(
         'Configured customer is NOT a test account.'
       );
     }
+    
+    return customerId;
   } catch (err: any) {
     if (err instanceof GoogleProviderError) {
       throw err;

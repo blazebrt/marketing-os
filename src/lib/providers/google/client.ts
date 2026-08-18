@@ -20,7 +20,7 @@ export class GoogleAdsMutationClient {
   constructor(private creds: GoogleAdsCredentials) {}
 
   async initialize() {
-    await verifyTestAccount(
+    const verifiedCustomerId = await verifyTestAccount(
       this.creds.developerToken,
       this.creds.refreshToken,
       this.creds.clientId,
@@ -37,7 +37,7 @@ export class GoogleAdsMutationClient {
     });
 
     this.customer = client.Customer({
-      customer_id: this.creds.customerId,
+      customer_id: verifiedCustomerId,
       refresh_token: this.creds.refreshToken,
       login_customer_id: this.creds.managerId,
     });
@@ -172,18 +172,92 @@ export class GoogleAdsMutationClient {
     }
   }
 
+  async findBudgetByName(name: string): Promise<string | null> {
+    try {
+      const response = await this.customer.query(`
+        SELECT campaign_budget.resource_name 
+        FROM campaign_budget 
+        WHERE campaign_budget.name = '${name}' 
+        LIMIT 1
+      `);
+      return response.length > 0 && response[0].campaign_budget ? (response[0].campaign_budget.resource_name || null) : null;
+    } catch (err: any) {
+      throw this.mapError(err, 'findBudgetByName');
+    }
+  }
+
+  async findCampaignByName(name: string): Promise<string | null> {
+    try {
+      const response = await this.customer.query(`
+        SELECT campaign.resource_name 
+        FROM campaign 
+        WHERE campaign.name = '${name}' 
+        LIMIT 1
+      `);
+      return response.length > 0 && response[0].campaign ? (response[0].campaign.resource_name || null) : null;
+    } catch (err: any) {
+      throw this.mapError(err, 'findCampaignByName');
+    }
+  }
+
+  async findAdGroupByName(campaignResourceName: string, name: string): Promise<string | null> {
+    try {
+      const response = await this.customer.query(`
+        SELECT ad_group.resource_name 
+        FROM ad_group 
+        WHERE ad_group.name = '${name}' AND campaign.resource_name = '${campaignResourceName}'
+        LIMIT 1
+      `);
+      return response.length > 0 && response[0].ad_group ? (response[0].ad_group.resource_name || null) : null;
+    } catch (err: any) {
+      throw this.mapError(err, 'findAdGroupByName');
+    }
+  }
+
+  async findAdGroupAds(adGroupResourceName: string): Promise<string[]> {
+    try {
+      const response = await this.customer.query(`
+        SELECT ad_group_ad.ad.resource_name 
+        FROM ad_group_ad 
+        WHERE ad_group.resource_name = '${adGroupResourceName}'
+      `);
+      return response.map((r: any) => r.ad_group_ad.ad.resource_name);
+    } catch (err: any) {
+      throw this.mapError(err, 'findAdGroupAds');
+    }
+  }
+
+  async findKeywords(adGroupResourceName: string): Promise<string[]> {
+    try {
+      const response = await this.customer.query(`
+        SELECT ad_group_criterion.criterion_id, ad_group_criterion.resource_name 
+        FROM ad_group_criterion 
+        WHERE ad_group.resource_name = '${adGroupResourceName}' AND ad_group_criterion.type = 'KEYWORD'
+      `);
+      return response.map((r: any) => r.ad_group_criterion.resource_name);
+    } catch (err: any) {
+      throw this.mapError(err, 'findKeywords');
+    }
+  }
+
   private mapError(err: any, context: string): GoogleProviderError {
-    console.error(`Google API Error [${context}]:`, err);
-    if (err.message?.includes('AUTHENTICATION_ERROR')) {
+    // DO NOT LOG RAW GOOGLE ERRORS containing credentials/tokens.
+    const message = err?.message || 'Unknown error';
+    if (message.includes('AUTHENTICATION_ERROR')) {
       return new GoogleProviderError(ERROR_CODES.AUTH_FAILED, 'Authentication to Google Ads failed.');
     }
-    if (err.message?.includes('QUOTA_CHECK_FAILED') || err.message?.includes('RATE_EXCEEDED')) {
+    if (message.includes('QUOTA_CHECK_FAILED') || message.includes('RATE_EXCEEDED')) {
       return new GoogleProviderError(ERROR_CODES.RATE_LIMITED, 'Google Ads API rate limit exceeded.');
     }
+    
+    // Sanitize string before returning to prevent leaking details
+    const sanitizedMsg = message.replace(/bearer\s+[A-Za-z0-9-_=]+/ig, 'Bearer [REDACTED]')
+                                .replace(/developer-token: \S+/ig, 'developer-token: [REDACTED]');
+                                
     return new GoogleProviderError(
       ERROR_CODES.INVALID_REQUEST,
-      `Google Ads API request failed: ${err.message}`,
-      err.errors || []
+      `Google Ads API request failed in ${context}`,
+      [{ message: sanitizedMsg }]
     );
   }
 }

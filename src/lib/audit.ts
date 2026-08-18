@@ -1,5 +1,8 @@
 import { createClient } from './supabase/server';
 
+export let __mockLogAudit: any = null;
+export function __setMockLogAudit(mock: any) { __mockLogAudit = mock; }
+
 export async function logAudit(
   actor: string,
   action: string,
@@ -9,6 +12,8 @@ export async function logAudit(
   afterState: any,
   reason: string
 ) {
+  if (__mockLogAudit) return __mockLogAudit(actor, action, entityType, entityId, beforeState, afterState, reason);
+
   const supabase = await createClient();
   
   const { error } = await supabase.from('audit_logs').insert({
