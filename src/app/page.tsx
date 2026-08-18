@@ -9,11 +9,11 @@ export default async function DashboardPage() {
   const { data: leads } = await supabase.from('leads').select('status, revenue_amount');
   
   const total = leads?.length || 0;
-  const newLeads = leads?.filter(l => l.status === 'NEW').length || 0;
-  const contacted = leads?.filter(l => l.status === 'CONTACTED').length || 0;
-  const bookings = leads?.filter(l => l.status === 'BOOKED').length || 0;
-  const visits = leads?.filter(l => l.status === 'VISITED').length || 0;
-  const revenue = leads?.reduce((sum, l) => sum + Number(l.revenue_amount), 0) || 0;
+  const newLeads = leads?.filter((l: any) => l.status === 'NEW').length || 0;
+  const contacted = leads?.filter((l: any) => l.status === 'CONTACTED').length || 0;
+  const bookings = leads?.filter((l: any) => l.status === 'BOOKED').length || 0;
+  const visits = leads?.filter((l: any) => l.status === 'VISITED').length || 0;
+  const revenue = leads?.reduce((sum: number, l: any) => sum + Number(l.revenue_amount), 0) || 0;
 
   return (
     <div className="p-8 max-w-7xl mx-auto">

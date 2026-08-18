@@ -30,7 +30,7 @@ export async function checkSpendingGuardrails(
     .select('status')
     .in('provider', ['meta', 'google']);
 
-  if (intError || integrations.some(i => i.status !== 'connected')) {
+  if (intError || integrations.some((i: any) => i.status !== 'connected')) {
     return { safe: false, reason: 'One or more ad integrations are disconnected or in error. Fail-closed.' };
   }
 

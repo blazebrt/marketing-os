@@ -14,7 +14,7 @@ export default async function IntegrationsPage() {
     .eq('owner_id', user.id);
 
   const getMetadata = (provider: string): any => {
-    const int = integrations?.find(i => i.provider === provider);
+    const int = integrations?.find((i: any) => i.provider === provider);
     return int || { status: 'disconnected', external_id: null, error_message: null };
   };
 

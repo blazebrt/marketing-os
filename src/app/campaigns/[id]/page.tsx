@@ -87,7 +87,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
         <div>
           <h2 className="text-xl font-bold mb-4">Channel Deployments</h2>
           <div className="space-y-2">
-            {deployments.map(d => (
+            {deployments.map((d: any) => (
               <div key={d.id} className="p-4 border rounded flex justify-between">
                 <span className="font-medium capitalize">{d.provider}</span>
                 <span className="bg-gray-100 px-2 py-1 text-sm rounded">{d.status}</span>

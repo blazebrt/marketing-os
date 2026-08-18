@@ -6,6 +6,8 @@ import { GoogleProviderError, ERROR_CODES } from './errors';
 import { logAudit } from '../../audit';
 import { GoogleTargetState, GoogleCreativeItem } from './types';
 import { reconcileGoogleDeployment } from './reconciliation';
+import { calculateSafetyLimits } from '../../campaigns/safeguards';
+import { verifyTestAccount } from './test-account';
 
 export async function deployGoogleCampaign(campaignId: string, ownerId: string): Promise<void> {
   const serverClient = await createServerClient();
@@ -53,24 +55,20 @@ export async function deployGoogleCampaign(campaignId: string, ownerId: string):
 
     const targetState = deployment.target_state as GoogleTargetState;
 
-    // Authoritative Budget Calculation
     const budgetAmount = Number(campaign.budget_amount);
-    const durationDays = campaign.duration_days;
-    let expectedMaxDaily = budgetAmount;
-    let expectedMaxCampaign = budgetAmount * durationDays;
-    let expectedAutoIncrease = false;
+    const durationDays = Number(campaign.duration_days);
 
-    if (campaign.budget_type === 'LIFETIME') {
-      expectedMaxDaily = Math.round(budgetAmount / durationDays);
-      expectedMaxCampaign = budgetAmount;
-      expectedAutoIncrease = false;
+    if (durationDays <= 0 || isNaN(durationDays)) {
+      throw new Error('Invalid duration');
     }
+
+    let budgetTypeStr = campaign.budget_type?.toLowerCase() === 'lifetime' ? 'lifetime' : 'daily';
+    const limits = calculateSafetyLimits(budgetTypeStr, budgetAmount, durationDays);
 
     if (
       targetState.campaign.budget !== budgetAmount ||
-      Number(campaign.max_daily_spend) !== expectedMaxDaily ||
-      Number(campaign.max_campaign_spend) !== expectedMaxCampaign ||
-      campaign.max_auto_budget_increase !== expectedAutoIncrease
+      Number(campaign.max_daily_spend) !== limits.maxDaily ||
+      Number(campaign.max_campaign_spend) !== limits.maxTotal
     ) {
       throw new Error('Budget mismatch: Target state or campaign budget properties do not match authoritative calculation.');
     }
@@ -95,13 +93,21 @@ export async function deployGoogleCampaign(campaignId: string, ownerId: string):
 
     const decrypted = JSON.parse(creds.encrypted_credentials);
     const refreshToken = decryptCredential(decrypted.refresh_token);
+    const verifiedCustomerId = await verifyTestAccount(
+      process.env.GOOGLE_ADS_DEVELOPER_TOKEN!,
+      refreshToken,
+      process.env.GOOGLE_CLIENT_ID!,
+      process.env.GOOGLE_CLIENT_SECRET!,
+      process.env.GOOGLE_ADS_TEST_CUSTOMER_ID!,
+      process.env.GOOGLE_ADS_TEST_MANAGER_ID!
+    );
 
     const client = new GoogleAdsMutationClient({
       developerToken: process.env.GOOGLE_ADS_DEVELOPER_TOKEN!,
-      refreshToken,
+      refreshToken: refreshToken,
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-      customerId: process.env.GOOGLE_ADS_TEST_CUSTOMER_ID!,
+      customerId: verifiedCustomerId,
       managerId: process.env.GOOGLE_ADS_TEST_MANAGER_ID!,
     });
 
@@ -122,7 +128,7 @@ export async function deployGoogleCampaign(campaignId: string, ownerId: string):
     // 4. Create Budget
     if (!externalState.campaignBudgetResourceName) {
       await updateExternalState({}, 'CREATING_CAMPAIGN');
-      const budgetName = `Budget for ${campaign.id}`;
+      const budgetName = `MKTOS-${deployment.id}-BUDGET`;
       let budgetResource = await client.findBudgetByName(budgetName);
       if (!budgetResource) {
         const budgetAmountMicros = targetState.campaign.budget * 1000000;
@@ -133,7 +139,7 @@ export async function deployGoogleCampaign(campaignId: string, ownerId: string):
 
     // 5. Create Campaign
     if (!externalState.campaignResourceName) {
-      const campName = `${campaign.id} - Test`;
+      const campName = `MKTOS-${deployment.id}-CAMPAIGN`;
       let campaignResource = await client.findCampaignByName(campName);
       if (!campaignResource) {
         campaignResource = await client.createCampaign(
@@ -149,9 +155,10 @@ export async function deployGoogleCampaign(campaignId: string, ownerId: string):
     // 6. Create Ad Group
     if (!externalState.adGroupResourceName) {
       await updateExternalState({}, 'CREATING_AD_GROUP');
-      let adGroupResource = await client.findAdGroupByName(externalState.campaignResourceName, targetState.adGroup.name);
+      const adGroupName = `MKTOS-${deployment.id}-ADGROUP`;
+      let adGroupResource = await client.findAdGroupByName(externalState.campaignResourceName, adGroupName);
       if (!adGroupResource) {
-        adGroupResource = await client.createAdGroup(targetState.adGroup.name, externalState.campaignResourceName);
+        adGroupResource = await client.createAdGroup(adGroupName, externalState.campaignResourceName);
       }
       await updateExternalState({ adGroupResourceName: adGroupResource }, 'CREATING_ADS');
       await logAudit(authenticatedUid, 'GOOGLE_AD_GROUP_CREATED', 'channel_deployment', deployment.id, null, { resourceName: adGroupResource }, 'Ad Group created');
@@ -178,11 +185,14 @@ export async function deployGoogleCampaign(campaignId: string, ownerId: string):
     }
 
     // 8. Create Keywords
-    if (!externalState.keywordResourceNames || externalState.keywordResourceNames.length === 0) {
+    if (!externalState.keywordResourceNames || externalState.keywordResourceNames.length < targetState.keywords.length) {
       await updateExternalState({}, 'CREATING_KEYWORDS');
-      let keywordResourceNames = await client.findKeywords(externalState.adGroupResourceName);
-      if (keywordResourceNames.length === 0) {
-        for (const kw of targetState.keywords) {
+      const existingKeywords = await client.findKeywords(externalState.adGroupResourceName);
+      const keywordResourceNames = existingKeywords.map(k => k.resource_name);
+      
+      const existingTexts = new Set(existingKeywords.map(k => `${k.text.toLowerCase()}|${k.match_type}`));
+      for (const kw of targetState.keywords) {
+        if (!existingTexts.has(`${kw.current_value.toLowerCase()}|${kw.match_type || 'EXACT'}`)) {
           const kwResource = await client.createKeyword(externalState.adGroupResourceName, kw.current_value, kw.match_type || 'EXACT');
           keywordResourceNames.push(kwResource);
         }
@@ -205,7 +215,7 @@ export async function deployGoogleCampaign(campaignId: string, ownerId: string):
         .from('channel_deployments')
         .update({ status: 'FAILED', reconciliation_status: reconciliationResult.status })
         .eq('id', deployment.id);
-      console.log('RECONCILIATION FAILED WITH:', reconciliationResult.differences);
+
       throw new Error(`Deployment reconciliation failed with result: ${reconciliationResult.status}`);
     }
 

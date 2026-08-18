@@ -64,115 +64,136 @@ export async function reconcileGoogleDeployment(campaignId: string, ownerId: str
   let status = 'MATCH';
 
   try {
-    // CAMPAIGN & BUDGET
-    if (!externalState.campaignResourceName) {
-      status = 'MISSING';
-      differences.push('Campaign resource name missing in external state');
+    const verifiedCustomerNum = verifiedCustomerId.replace(/-/g, '');
+
+    // 1. BUDGET
+    if (!externalState.campaignBudgetResourceName) {
+      status = 'MISSING'; differences.push('Budget resource name missing in external state');
     } else {
-      const campResponse = await customer.query(`
-        SELECT campaign.id, campaign.name, campaign.status, campaign.bidding_strategy_type, campaign_budget.amount_micros 
+      const bRes = await customer.query(`
+        SELECT campaign_budget.amount_micros, customer.id
+        FROM campaign_budget 
+        WHERE campaign_budget.resource_name = '${externalState.campaignBudgetResourceName}'
+        LIMIT 1
+      `);
+      if (bRes.length === 0) {
+        status = 'MISSING'; differences.push('Budget not found in Google Ads');
+      } else {
+        const b = bRes[0].campaign_budget;
+        const custId = bRes[0].customer?.id?.toString();
+        if (custId !== verifiedCustomerNum) { status = 'DRIFT'; differences.push('Budget does not belong to verified customer'); }
+        if (b.amount_micros !== targetState.campaign.budget * 1000000) {
+          status = 'DRIFT'; differences.push(`Budget amount mismatch`);
+        }
+      }
+    }
+
+    // 2. CAMPAIGN
+    if (!externalState.campaignResourceName) {
+      status = 'MISSING'; differences.push('Campaign resource name missing in external state');
+    } else {
+      const cRes = await customer.query(`
+        SELECT campaign.bidding_strategy_type, campaign_budget.resource_name, customer.id
         FROM campaign 
         WHERE campaign.resource_name = '${externalState.campaignResourceName}'
         LIMIT 1
       `);
-      if (campResponse.length === 0) {
-        status = 'MISSING';
-        differences.push('Campaign not found in Google Ads');
+      if (cRes.length === 0) {
+        status = 'MISSING'; differences.push('Campaign not found in Google Ads');
       } else {
-        const camp = campResponse[0].campaign;
-        const budget = campResponse[0].campaign_budget;
-        if (budget.amount_micros !== targetState.campaign.budget * 1000000) {
-          status = 'DRIFT';
-          differences.push(`Budget mismatch. Expected ${targetState.campaign.budget * 1000000}, found ${budget.amount_micros}`);
-        }
-        if (camp.bidding_strategy_type !== targetState.bidding.strategy) {
-          status = 'DRIFT';
-          differences.push(`Bidding strategy mismatch. Expected ${targetState.bidding.strategy}, found ${camp.bidding_strategy_type}`);
-        }
+        const c = cRes[0].campaign;
+        const cb = cRes[0].campaign_budget;
+        const custId = cRes[0].customer?.id?.toString();
+        if (custId !== verifiedCustomerNum) { status = 'DRIFT'; differences.push('Campaign does not belong to verified customer'); }
+        if (cb.resource_name !== externalState.campaignBudgetResourceName) { status = 'DRIFT'; differences.push('Campaign does not use expected budget'); }
+        if (c.bidding_strategy_type !== targetState.bidding.strategy) { status = 'DRIFT'; differences.push('Bidding strategy mismatch'); }
       }
     }
 
-    // AD GROUP
+    // 3. AD GROUP
     if (!externalState.adGroupResourceName) {
-      status = 'MISSING';
-      differences.push('AdGroup resource name missing in external state');
+      status = 'MISSING'; differences.push('AdGroup resource name missing in external state');
     } else {
-      const agResponse = await customer.query(`
-        SELECT ad_group.name, ad_group.type, campaign.resource_name 
+      const agRes = await customer.query(`
+        SELECT ad_group.name, campaign.resource_name, customer.id
         FROM ad_group 
         WHERE ad_group.resource_name = '${externalState.adGroupResourceName}'
         LIMIT 1
       `);
-      if (agResponse.length === 0) {
-        status = 'MISSING';
-        differences.push('AdGroup not found in Google Ads');
+      if (agRes.length === 0) {
+        status = 'MISSING'; differences.push('AdGroup not found in Google Ads');
       } else {
-        const ag = agResponse[0].ad_group;
-        const c = agResponse[0].campaign;
-        if (ag.name !== targetState.adGroup.name) {
-           status = 'DRIFT'; differences.push('AdGroup name mismatch');
-        }
-        if (c.resource_name !== externalState.campaignResourceName) {
-           status = 'DRIFT'; differences.push('AdGroup does not belong to expected campaign');
-        }
+        const ag = agRes[0].ad_group;
+        const c = agRes[0].campaign;
+        const custId = agRes[0].customer?.id?.toString();
+        if (custId !== verifiedCustomerNum) { status = 'DRIFT'; differences.push('AdGroup does not belong to verified customer'); }
+        if (c.resource_name !== externalState.campaignResourceName) { status = 'DRIFT'; differences.push('AdGroup does not belong to expected campaign'); }
       }
     }
 
-    // ADS
-    if (!externalState.adResourceNames || externalState.adResourceNames.length === 0) {
-      status = 'MISSING';
-      differences.push('Ads missing in external state');
+    // CREATIVE EXPECTATIONS
+    const expectedHeadlines = (targetState.headlines || []).filter((h: any) => h.owner_approved && !h.rejected).map((h: any) => h.current_value.trim().toLowerCase()).sort();
+    const expectedDescriptions = (targetState.descriptions || []).filter((d: any) => d.owner_approved && !d.rejected).map((d: any) => d.current_value.trim().toLowerCase()).sort();
+    const expectedUrls = targetState.destination?.url ? [targetState.destination.url.trim().toLowerCase()] : [];
+    const expectedKeywords = (targetState.keywords || []).filter((k: any) => k.owner_approved && !k.rejected).map((k: any) => ({
+      text: k.current_value.trim().toLowerCase(),
+      match_type: k.match_type || 'EXACT'
+    })).sort((a: any, b: any) => a.text.localeCompare(b.text));
+
+    // 4. ADS
+    if (!externalState.adGroupResourceName) {
+       // Cannot query ads if ad group is missing
     } else {
-      for (const adRes of externalState.adResourceNames) {
-        const adResponse = await customer.query(`
-          SELECT ad_group_ad.ad.responsive_search_ad.headlines, ad_group_ad.ad.responsive_search_ad.descriptions, ad_group_ad.ad.final_urls
-          FROM ad_group_ad 
-          WHERE ad_group_ad.ad.resource_name = '${adRes}'
-          LIMIT 1
-        `);
-        if (adResponse.length === 0) {
-          status = 'MISSING';
-          differences.push(`Ad ${adRes} not found`);
-        } else {
-          // Check components
-          const rsa = adResponse[0].ad_group_ad?.ad?.responsive_search_ad || {};
-          const urls = adResponse[0].ad_group_ad?.ad?.final_urls || [];
-          console.log('RECONCILIATION AD VALUES:', { urls, targetUrl: targetState.destination.url, rsaHeadlines: rsa.headlines, targetHeadlines: targetState.headlines });
-          if (!urls.includes(targetState.destination.url)) {
-            status = 'DRIFT'; differences.push('Ad destination URL mismatch');
-          }
-          if (!rsa.headlines || rsa.headlines.length !== targetState.headlines.length) {
-             status = 'DRIFT'; differences.push('Ad headlines count mismatch');
-          }
+      const adRes = await customer.query(`
+        SELECT ad_group_ad.ad.responsive_search_ad.headlines, ad_group_ad.ad.responsive_search_ad.descriptions, ad_group_ad.ad.final_urls, customer.id
+        FROM ad_group_ad 
+        WHERE ad_group.resource_name = '${externalState.adGroupResourceName}'
+      `);
+      
+      if (adRes.length === 0) {
+        status = 'MISSING'; differences.push('No ads found in AdGroup');
+      } else {
+        const ad = adRes[0].ad_group_ad?.ad;
+        const custId = adRes[0].customer?.id?.toString();
+        if (custId !== verifiedCustomerNum) { status = 'DRIFT'; differences.push('Ad does not belong to verified customer'); }
+        
+        const rsa = ad?.responsive_search_ad || {};
+        const actualHeadlines = (rsa.headlines || []).map((h: any) => h.text.trim().toLowerCase()).sort();
+        const actualDescriptions = (rsa.descriptions || []).map((d: any) => d.text.trim().toLowerCase()).sort();
+        const actualUrls = (ad?.final_urls || []).map((u: any) => u.trim().toLowerCase()).sort();
+
+        if (JSON.stringify(actualHeadlines) !== JSON.stringify(expectedHeadlines)) {
+          status = 'DRIFT'; differences.push('HEADLINE_MISMATCH');
+        }
+        if (JSON.stringify(actualDescriptions) !== JSON.stringify(expectedDescriptions)) {
+          status = 'DRIFT'; differences.push('DESCRIPTION_MISMATCH');
+        }
+        if (JSON.stringify(actualUrls) !== JSON.stringify(expectedUrls)) {
+          status = 'DRIFT'; differences.push('DESTINATION_URL_MISMATCH');
         }
       }
     }
 
-    // KEYWORDS
-    if (targetState.keywords && targetState.keywords.length > 0) {
-      if (!externalState.keywordResourceNames || externalState.keywordResourceNames.length === 0) {
-        status = 'MISSING';
-        differences.push('Keywords missing in external state');
-      } else {
-        for (const kwRes of externalState.keywordResourceNames) {
-        const kwResponse = await customer.query(`
-          SELECT ad_group_criterion.keyword.text, ad_group_criterion.keyword.match_type
-          FROM ad_group_criterion 
-          WHERE ad_group_criterion.resource_name = '${kwRes}'
-          LIMIT 1
-        `);
-        if (kwResponse.length === 0) {
-          status = 'MISSING';
-          differences.push(`Keyword ${kwRes} not found`);
-        } else {
-          const text = kwResponse[0].ad_group_criterion?.keyword?.text;
-          const matchType = kwResponse[0].ad_group_criterion?.keyword?.match_type;
-          // check if text is in targetState
-          if (!targetState.keywords.find(k => k.current_value === text && (k.match_type || 'EXACT') === matchType)) {
-             status = 'DRIFT'; differences.push(`Keyword ${text} mismatch or not found in target state`);
-          }
-          }
-        }
+    // 5. KEYWORDS
+    if (externalState.adGroupResourceName) {
+      const kwRes = await customer.query(`
+        SELECT ad_group_criterion.keyword.text, ad_group_criterion.keyword.match_type, customer.id
+        FROM ad_group_criterion 
+        WHERE ad_group.resource_name = '${externalState.adGroupResourceName}' AND ad_group_criterion.type = 'KEYWORD'
+      `);
+      
+      const actualKeywords = kwRes.map((r: any) => ({
+        text: r.ad_group_criterion.keyword.text.trim().toLowerCase(),
+        match_type: r.ad_group_criterion.keyword.match_type
+      })).sort((a: any, b: any) => a.text.localeCompare(b.text));
+
+      if (kwRes.length > 0) {
+        const custId = kwRes[0].customer?.id?.toString();
+        if (custId !== verifiedCustomerNum) { status = 'DRIFT'; differences.push('Keyword does not belong to verified customer'); }
+      }
+
+      if (JSON.stringify(actualKeywords) !== JSON.stringify(expectedKeywords)) {
+        status = 'DRIFT'; differences.push('KEYWORD_MISMATCH');
       }
     }
 

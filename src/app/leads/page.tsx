@@ -17,7 +17,7 @@ export default async function LeadsPage() {
       
       <div className="bg-white shadow overflow-hidden sm:rounded-md">
         <ul className="divide-y divide-gray-200">
-          {leads?.map(lead => (
+          {leads?.map((lead: any) => (
             <li key={lead.id} className="p-4 flex flex-col md:flex-row items-center justify-between">
               <div className="flex-1">
                 <h3 className="text-lg font-medium">{lead.name || 'Unknown Name'}</h3>

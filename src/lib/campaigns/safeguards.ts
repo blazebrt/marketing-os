@@ -5,7 +5,7 @@ export function calculateSafetyLimits(budgetType: string, amount: number, durati
   let daily = 0;
   let total = 0;
 
-  if (budgetType === 'daily') {
+  if (budgetType.toLowerCase() === 'daily') {
     daily = amount;
     total = amount * duration;
   } else {
@@ -15,6 +15,10 @@ export function calculateSafetyLimits(budgetType: string, amount: number, durati
 
   if (amount <= 0 || isNaN(amount) || !isFinite(amount)) {
     throw new Error('Invalid budget amount');
+  }
+
+  if (duration <= 0 || isNaN(duration) || !isFinite(duration)) {
+    throw new Error('Invalid duration');
   }
 
   if (daily > MAX_DAILY_SPEND) {

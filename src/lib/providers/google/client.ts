@@ -227,14 +227,18 @@ export class GoogleAdsMutationClient {
     }
   }
 
-  async findKeywords(adGroupResourceName: string): Promise<string[]> {
+  async findKeywords(adGroupResourceName: string): Promise<{ resource_name: string, text: string, match_type: string }[]> {
     try {
       const response = await this.customer.query(`
-        SELECT ad_group_criterion.criterion_id, ad_group_criterion.resource_name 
+        SELECT ad_group_criterion.resource_name, ad_group_criterion.keyword.text, ad_group_criterion.keyword.match_type
         FROM ad_group_criterion 
         WHERE ad_group.resource_name = '${adGroupResourceName}' AND ad_group_criterion.type = 'KEYWORD'
       `);
-      return response.map((r: any) => r.ad_group_criterion.resource_name);
+      return response.map((r: any) => ({
+        resource_name: r.ad_group_criterion.resource_name,
+        text: r.ad_group_criterion.keyword.text,
+        match_type: r.ad_group_criterion.keyword.match_type
+      }));
     } catch (err: any) {
       throw this.mapError(err, 'findKeywords');
     }

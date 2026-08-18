@@ -20,7 +20,7 @@ export default async function CampaignsPage() {
       
       <div className="bg-white shadow overflow-hidden sm:rounded-md">
         <ul className="divide-y divide-gray-200">
-          {campaigns?.map(c => (
+          {campaigns?.map((c: any) => (
             <li key={c.id} className="p-4 flex items-center justify-between">
               <div>
                 <h3 className="text-lg font-medium">{c.service}</h3>
