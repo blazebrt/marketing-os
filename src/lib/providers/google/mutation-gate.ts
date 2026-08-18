@@ -1,11 +1,13 @@
 import { GoogleProviderError } from './errors';
+import { verifyTestAccount } from './test-account';
+import { decryptCredential } from '../../crypto';
 
-export function authorizeGoogleTestMutation(
-  verifiedCustomerId: string,
+export async function authorizeGoogleTestMutation(
   authenticatedUid: string,
   deploymentStatus: string,
   deployment: any,
-  targetState: any
+  targetState: any,
+  refreshToken: string
 ) {
   if (process.env.GOOGLE_ADS_EXECUTION_MODE !== 'test') {
     throw new GoogleProviderError('REAL_TEST_MUTATION_NOT_AUTHORIZED', 'Execution mode must be exactly "test".');
@@ -16,9 +18,7 @@ export function authorizeGoogleTestMutation(
   if (process.env.NODE_ENV === 'production') {
     throw new GoogleProviderError('REAL_TEST_MUTATION_NOT_AUTHORIZED', 'Test mutations cannot run in a production environment.');
   }
-  if (verifiedCustomerId !== process.env.GOOGLE_ADS_TEST_CUSTOMER_ID) {
-    throw new GoogleProviderError('REAL_TEST_MUTATION_NOT_AUTHORIZED', 'Verified customer ID does not match configured test customer ID.');
-  }
+
   if (!authenticatedUid) {
     throw new GoogleProviderError('REAL_TEST_MUTATION_NOT_AUTHORIZED', 'Anonymous user is not authorized.');
   }
@@ -39,5 +39,25 @@ export function authorizeGoogleTestMutation(
     }
   }
 
-  return true;
+  // verifyTestAccount() succeeds & Google customer.test_account === true
+  let verifiedCustomerId: string;
+  try {
+    verifiedCustomerId = await verifyTestAccount(
+      process.env.GOOGLE_ADS_DEVELOPER_TOKEN!,
+      refreshToken,
+      process.env.GOOGLE_CLIENT_ID!,
+      process.env.GOOGLE_CLIENT_SECRET!,
+      process.env.GOOGLE_ADS_TEST_CUSTOMER_ID!,
+      process.env.GOOGLE_ADS_TEST_MANAGER_ID!
+    );
+  } catch (err: any) {
+    throw new GoogleProviderError('REAL_TEST_MUTATION_NOT_AUTHORIZED', 'verifyTestAccount failed: ' + err.message);
+  }
+
+  // verified customer === GOOGLE_ADS_TEST_CUSTOMER_ID
+  if (verifiedCustomerId !== process.env.GOOGLE_ADS_TEST_CUSTOMER_ID) {
+    throw new GoogleProviderError('REAL_TEST_MUTATION_NOT_AUTHORIZED', 'Verified customer ID does not match configured test customer ID.');
+  }
+
+  return verifiedCustomerId;
 }

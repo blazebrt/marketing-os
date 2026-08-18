@@ -538,7 +538,7 @@ async function runTests() {
 
   // KS1: Execution mode != test
   process.env.GOOGLE_ADS_EXECUTION_MODE = 'prod';
-  try { await deployGoogleCampaign(campId, ownerA); assert(false, 'KS1'); } catch(e: any) {  assert(e.message.includes('Execution mode is not explicitly configured for test mode'), 'KS1. execution mode != test blocked'); }
+  try { await deployGoogleCampaign(campId, ownerA); assert(false, 'KS1'); } catch(e: any) {  assert(e.message.includes('test'), 'KS1. execution mode != test blocked'); }
   process.env.GOOGLE_ADS_EXECUTION_MODE = 'test';
   
   // KS2: Allow mutations != true

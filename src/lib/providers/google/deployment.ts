@@ -69,17 +69,8 @@ export async function deployGoogleCampaign(campaignId: string, ownerId: string):
     const decrypted = JSON.parse(creds.encrypted_credentials);
     const refreshToken = decryptCredential(decrypted.refresh_token);
 
-    // 4. verifyTestAccount
-    const verifiedCustomerId = await verifyTestAccount(
-      process.env.GOOGLE_ADS_DEVELOPER_TOKEN!,
-      refreshToken,
-      process.env.GOOGLE_CLIENT_ID!,
-      process.env.GOOGLE_CLIENT_SECRET!,
-      process.env.GOOGLE_ADS_TEST_CUSTOMER_ID!,
-      process.env.GOOGLE_ADS_TEST_MANAGER_ID!
-    );
-
-    // 5. Authoritative budget validation
+    
+    
     const budgetAmount = Number(campaign.budget_amount);
     const durationDays = Number(campaign.duration_days);
 
@@ -97,7 +88,16 @@ export async function deployGoogleCampaign(campaignId: string, ownerId: string):
     }
     const limits = calculateSafetyLimits(budgetTypeStr, budgetAmount, durationDays);
 
-    authorizeGoogleTestMutation(verifiedCustomerId, authenticatedUid, 'READY_TO_DEPLOY', deployment, targetState);
+    // 4. Authorize Mutation Gate
+
+    const verifiedCustomerId = await authorizeGoogleTestMutation(
+      authenticatedUid,
+      'READY_TO_DEPLOY',
+      deployment,
+      targetState,
+      refreshToken
+    );
+
 
 
     if (
