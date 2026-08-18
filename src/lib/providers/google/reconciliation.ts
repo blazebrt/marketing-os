@@ -13,8 +13,8 @@ export function __setMockGoogleAdsApi(mock: any) { __MockGoogleAdsApi = mock; }
 export async function reconcileGoogleDeployment(campaignId: string, ownerId: string) {
   const serverClient = await createServerClient();
   const { data: authData, error: authError } = await serverClient.auth.getUser();
-  if (authError || !authData?.user) throw new GoogleProviderError(ERROR_CODES.INTERNAL_ERROR, 'Failed to reconcile', { originalError: 'Unauthorized: Anonymous access denied' });
-  if (authData.user.id !== ownerId) throw new GoogleProviderError(ERROR_CODES.INTERNAL_ERROR, 'Failed to reconcile', { originalError: 'Unauthorized: Resource owner mismatch' });
+  if (authError || !authData?.user) throw new GoogleProviderError(ERROR_CODES.INTERNAL_ERROR, 'Failed to reconcile');
+  if (authData.user.id !== ownerId) throw new GoogleProviderError(ERROR_CODES.INTERNAL_ERROR, 'Failed to reconcile');
   const supabase = await createServiceClient();
 
   const { data: deployment, error: depError } = await supabase

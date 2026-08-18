@@ -501,15 +501,15 @@ async function runTests() {
   // 45. INTERNAL RECONCILIATION AUTH
   // A. Anonymous
   mockAuthUser = null;
-  try { await reconcileGoogleDeployment(campId, ownerA); assert(false, '45A'); } catch(e: any) { console.error('45A ERROR:', e); assert(e.details?.originalError?.includes('Unauthorized'), '45A. Anonymous reconciliation rejected'); }
+  try { await reconcileGoogleDeployment(campId, ownerA); assert(false, '45A'); } catch(e: any) { console.error('45A ERROR:', e); assert(!e.details?.originalError, '45A. Anonymous reconciliation does not expose originalError'); assert(e.code === 'GOOGLE_INTERNAL_ERROR', '45A. Anonymous reconciliation rejected'); }
   
   // B. Owner A reconciling Owner B
   mockAuthUser = { id: ownerA };
-  try { await reconcileGoogleDeployment(campId, ownerB); assert(false, '45B'); } catch(e: any) { console.error('45B ERROR:', e); assert(e.details?.originalError?.includes('Unauthorized'), '45B. Owner A reconciling Owner B rejected'); }
+  try { await reconcileGoogleDeployment(campId, ownerB); assert(false, '45B'); } catch(e: any) { console.error('45B ERROR:', e); assert(!e.details?.originalError, '45B. Owner mismatch does not expose originalError'); assert(e.code === 'GOOGLE_INTERNAL_ERROR', '45B. Owner A reconciling Owner B rejected'); }
   
   // C. Spoofed ownerId
   mockAuthUser = { id: 'random-uuid' };
-  try { await reconcileGoogleDeployment(campId, ownerA); assert(false, '45C'); } catch(e: any) { assert(e.details?.originalError?.includes('Unauthorized'), '45C. Spoofed ownerId rejected'); }
+  try { await reconcileGoogleDeployment(campId, ownerA); assert(false, '45C'); } catch(e: any) { assert(!e.details?.originalError, '45C. Spoofed ownerId does not expose originalError'); assert(e.code === 'GOOGLE_INTERNAL_ERROR', '45C. Spoofed ownerId rejected'); }
 
   // D. Correct authenticated succeeds
   mockAuthUser = { id: ownerA };
