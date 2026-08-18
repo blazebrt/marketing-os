@@ -145,17 +145,23 @@ export async function reconcileGoogleDeployment(campaignId: string, ownerId: str
        // Cannot query ads if ad group is missing
     } else {
       const adRes = await customer.query(`
-        SELECT ad_group_ad.ad.responsive_search_ad.headlines, ad_group_ad.ad.responsive_search_ad.descriptions, ad_group_ad.ad.final_urls, customer.id
+        SELECT ad_group_ad.ad.responsive_search_ad.headlines, ad_group_ad.ad.responsive_search_ad.descriptions, ad_group_ad.ad.final_urls, customer.id, ad_group.resource_name
         FROM ad_group_ad 
         WHERE ad_group.resource_name = '${externalState.adGroupResourceName}'
       `);
       
+      const expectedAdCount = 1;
       if (adRes.length === 0) {
         status = 'MISSING'; differences.push('No ads found in AdGroup');
+      } else if (adRes.length !== expectedAdCount) {
+        status = 'DRIFT'; differences.push(`Ad count mismatch: Expected ${expectedAdCount}, found ${adRes.length}`);
       } else {
-        const ad = adRes[0].ad_group_ad?.ad;
-        const custId = adRes[0].customer?.id?.toString();
+        const row = adRes[0];
+        const ad = row.ad_group_ad?.ad;
+        const custId = row.customer?.id?.toString();
+        const parentAdGroup = row.ad_group?.resource_name;
         if (custId !== verifiedCustomerNum) { status = 'DRIFT'; differences.push('Ad does not belong to verified customer'); }
+        if (parentAdGroup !== externalState.adGroupResourceName) { status = 'DRIFT'; differences.push('Ad does not belong to expected ad group'); }
         
         const rsa = ad?.responsive_search_ad || {};
         const actualHeadlines = (rsa.headlines || []).map((h: any) => h.text.trim().toLowerCase()).sort();

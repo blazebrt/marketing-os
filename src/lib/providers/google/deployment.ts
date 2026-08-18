@@ -62,7 +62,14 @@ export async function deployGoogleCampaign(campaignId: string, ownerId: string):
       throw new Error('Invalid duration');
     }
 
-    let budgetTypeStr = campaign.budget_type?.toLowerCase() === 'lifetime' ? 'lifetime' : 'daily';
+    const rawBudgetType = campaign.budget_type?.toLowerCase();
+    if (rawBudgetType !== 'daily' && rawBudgetType !== 'lifetime') {
+      throw new GoogleProviderError('INVALID_BUDGET_TYPE', 'Budget type must be exactly daily or lifetime.');
+    }
+    const budgetTypeStr = rawBudgetType as 'daily' | 'lifetime';
+    if (Number(campaign.max_auto_budget_increase) !== 0) {
+      throw new GoogleProviderError('SAFETY_VIOLATION', 'max_auto_budget_increase must be exactly 0.');
+    }
     const limits = calculateSafetyLimits(budgetTypeStr, budgetAmount, durationDays);
 
     if (
@@ -231,7 +238,7 @@ export async function deployGoogleCampaign(campaignId: string, ownerId: string):
       })
       .eq('id', deployment.id);
       
-    await logAudit(authenticatedUid, 'GOOGLE_DEPLOYMENT_FAILED', 'channel_deployment', deployment.id, null, { error: err.message || 'Unknown error' }, 'Deployment failed');
+    await logAudit(authenticatedUid, 'GOOGLE_DEPLOYMENT_FAILED', 'channel_deployment', deployment.id, null, { error_code: err.code || ERROR_CODES.INTERNAL_ERROR, stage: 'DEPLOYMENT' }, 'Deployment failed');
     throw err;
   }
 }
