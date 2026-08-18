@@ -9,7 +9,7 @@ export async function prepareGoogleDeployment(
   campaignId: string,
   contextProvider?: GoogleAccountContextProvider
 ): Promise<GoogleTargetState> {
-  const provider = contextProvider || new GoogleAdsReadOnlyContextProvider(supabase);
+  const provider = contextProvider || new GoogleAdsReadOnlyContextProvider();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Unauthorized: No user session');
 

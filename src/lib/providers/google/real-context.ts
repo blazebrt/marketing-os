@@ -1,36 +1,96 @@
 import { StrategyContext } from './types';
 import { GoogleAccountContextProvider } from './context';
-import { createClient } from '@/lib/supabase/server';
+import { createServiceClient } from '@/lib/supabase/service';
+import { decryptCredential } from '@/lib/crypto';
 
+/**
+ * Production Google Ads read-only context provider.
+ *
+ * Security boundary:
+ *   authenticated server request
+ *     → verify owner_id
+ *     → server-only service client
+ *     → integration_credentials (zero browser RLS)
+ *     → decrypt encrypted_credentials
+ *     → Google Ads READ-ONLY request
+ *     → StrategyContext
+ *
+ * Decrypted credentials NEVER enter:
+ *   target_state, audit_logs, browser responses,
+ *   React props, client components, logs, or API routes.
+ *
+ * Zero mutation endpoints. No POST/CREATE/UPDATE/MUTATE operations.
+ */
 export class GoogleAdsReadOnlyContextProvider implements GoogleAccountContextProvider {
-  constructor(private client?: any) {}
+  // serviceClientOverride is strictly for testing injection.
+  // Production code MUST call this constructor with zero arguments.
+  constructor(private serviceClientOverride?: any) {}
 
   async getStrategyContext(ownerId: string): Promise<StrategyContext> {
-    const supabase = this.client || await createClient();
+    // 1. Obtain server-only service client (bypasses RLS)
+    let serviceClient: any;
+    try {
+      serviceClient = this.serviceClientOverride || createServiceClient();
+    } catch {
+      throw new Error('GOOGLE_CONTEXT_UNAVAILABLE');
+    }
 
-    // Verify integration exists
-    const { data: integration, error } = await supabase
-      .from('integrations')
-      .select('credentials')
+    // 2. Query integration_credentials — NOT integrations.credentials
+    //    integration_credentials has zero authenticated/anon RLS policies.
+    //    Only service_role can read this table.
+    const { data: credRow, error } = await serviceClient
+      .from('integration_credentials')
+      .select('encrypted_credentials')
       .eq('owner_id', ownerId)
       .eq('provider', 'google')
       .single();
 
-    if (error || !integration || !integration.credentials) {
+    if (error || !credRow || !credRow.encrypted_credentials) {
       throw new Error('GOOGLE_CONTEXT_UNAVAILABLE');
     }
 
-    // In a real application, we would use the credentials to call Google Ads API:
-    // const client = new GoogleAdsApi(integration.credentials.access_token);
-    // const metrics = await client.getMetrics();
-    // 
-    // Since this is Milestone 5 (No mutation, read-only prep), and we don't have real live tokens yet:
-    // We throw GOOGLE_CONTEXT_UNAVAILABLE if it fails, which it will if the credentials aren't fully valid.
-    
-    // As per requirements: Do not silently fall back to mock data.
-    // We will just throw the explicit error requested to prove safety,
-    // or if we had real test-account credentials, return them.
-    // For M5, since we can't truly read Google without tokens, we fail closed.
+    // 3. Decrypt credentials server-side
+    let accessToken: string;
+    try {
+      const parsed = JSON.parse(credRow.encrypted_credentials);
+      if (!parsed.access_token) {
+        throw new Error('Missing access_token in encrypted credentials');
+      }
+      accessToken = decryptCredential(parsed.access_token);
+    } catch {
+      // Covers: invalid JSON, missing fields, wrong ENCRYPTION_KEY, corrupt data
+      throw new Error('GOOGLE_CONTEXT_UNAVAILABLE');
+    }
+
+    // 4. Fetch read-only Google Ads metrics
+    //    NO mutation endpoints. Zero POST/CREATE/UPDATE/MUTATE.
+    return await this.fetchReadOnlyMetrics(accessToken);
+  }
+
+  /**
+   * Read-only Google Ads API metrics fetch.
+   *
+   * When implemented, will query ONLY:
+   *   - customer account metadata (account age)
+   *   - conversion metrics (LAST_30_DAYS)
+   *   - conversion tracking status
+   *
+   * Will NOT call:
+   *   - CampaignService.MutateCampaigns
+   *   - AdGroupService.MutateAdGroups
+   *   - AdService.MutateAds
+   *   - KeywordPlanService
+   *   - BudgetService
+   *   - ConversionActionService.MutateConversionActions
+   *   - Any other mutating endpoint
+   *
+   * In M5: no live Google Ads API integration exists.
+   * Fails closed. Does NOT substitute hardcoded values.
+   * Does NOT call MockGoogleAccountContextProvider.
+   */
+  private async fetchReadOnlyMetrics(_accessToken: string): Promise<StrategyContext> {
+    // M5: fail closed — real Google Ads API integration deferred to future milestone.
+    // Do NOT substitute conversionCount = 0 or accountAgeDays = 5.
     throw new Error('GOOGLE_CONTEXT_UNAVAILABLE');
   }
 }
