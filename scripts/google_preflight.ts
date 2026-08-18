@@ -10,11 +10,7 @@ export async function checkPreflightEnvironment() {
     throw new Error('FAIL CLOSED: GOOGLE_ADS_EXECUTION_MODE must be "test"');
   }
 
-  // ALLOW_MUTATIONS should NOT be checked here. It is ONLY for the actual mutation path in deployment.ts
-  if (process.env.GOOGLE_ADS_ALLOW_MUTATIONS === 'true' && process.env.STRICT_PREFLIGHT === 'true') {
-    // Optionally log a warning or enforce separation
-  }
-
+  
   const requiredVars = [
     'GOOGLE_ADS_DEVELOPER_TOKEN',
     'GOOGLE_ADS_TEST_CUSTOMER_ID',

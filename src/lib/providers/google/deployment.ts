@@ -1,3 +1,4 @@
+import { authorizeGoogleTestMutation } from './mutation-gate';
 import { createServiceClient } from '../../supabase/service';
 import { createClient as createServerClient } from '../../supabase/server';
 import { decryptCredential } from '../../crypto';
@@ -34,7 +35,7 @@ export async function deployGoogleCampaign(campaignId: string, ownerId: string):
     .eq('campaign_id', campaignId)
     .eq('provider', 'google')
     .eq('owner_id', authenticatedUid)
-    .in('status', ['READY_TO_DEPLOY', 'FAILED'])
+    .eq('status', 'READY_TO_DEPLOY')
     .select('*')
     .single();
 
@@ -96,6 +97,9 @@ export async function deployGoogleCampaign(campaignId: string, ownerId: string):
     }
     const limits = calculateSafetyLimits(budgetTypeStr, budgetAmount, durationDays);
 
+    authorizeGoogleTestMutation(verifiedCustomerId, authenticatedUid, 'READY_TO_DEPLOY', deployment, targetState);
+
+
     if (
       targetState.campaign.budget !== budgetAmount ||
       Number(campaign.max_daily_spend) !== limits.maxDaily ||
@@ -112,24 +116,7 @@ export async function deployGoogleCampaign(campaignId: string, ownerId: string):
       }
     }
 
-    // 6. EXPLICIT MUTATION KILL SWITCH
-    if (process.env.GOOGLE_ADS_EXECUTION_MODE !== 'test') {
-      throw new GoogleProviderError('REAL_TEST_MUTATION_NOT_AUTHORIZED', 'Execution mode must be exactly "test".');
-    }
-    if (process.env.GOOGLE_ADS_ALLOW_MUTATIONS !== 'true') {
-      throw new GoogleProviderError('REAL_TEST_MUTATION_NOT_AUTHORIZED', 'Mutations are explicitly disabled.');
-    }
-    if (process.env.NODE_ENV === 'production') {
-      throw new GoogleProviderError('REAL_TEST_MUTATION_NOT_AUTHORIZED', 'Test mutations cannot run in a production environment.');
-    }
-    if (verifiedCustomerId !== process.env.GOOGLE_ADS_TEST_CUSTOMER_ID) {
-      throw new GoogleProviderError('REAL_TEST_MUTATION_NOT_AUTHORIZED', 'Verified customer ID does not match configured test customer ID.');
-    }
-    if (process.env.GOOGLE_ADS_DEPLOYMENT_CONFIRMATION !== 'CONFIRMED') {
-      throw new GoogleProviderError('REAL_TEST_MUTATION_NOT_AUTHORIZED', 'Missing explicit deployment confirmation.');
-    }
-    // Note: verifyTestAccount already strictly ensures test_account === true.
-
+    
     const client = new GoogleAdsMutationClient({
       developerToken: process.env.GOOGLE_ADS_DEVELOPER_TOKEN!,
       refreshToken: refreshToken,
