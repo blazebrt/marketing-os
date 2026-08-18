@@ -59,7 +59,7 @@ export async function verifyTestAccount(
       );
     }
     
-    return customerId;
+    return customerData.id.toString();
   } catch (err: any) {
     if (err instanceof GoogleProviderError) {
       throw err;

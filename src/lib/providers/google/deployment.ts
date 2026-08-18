@@ -43,7 +43,7 @@ export async function deployGoogleCampaign(campaignId: string, ownerId: string):
   }
 
   try {
-    // 2. Fetch campaign and validate safety
+    // 2. Fetch campaign
     const { data: campaign, error: campError } = await supabase
       .from('unified_campaigns')
       .select('*')
@@ -55,6 +55,30 @@ export async function deployGoogleCampaign(campaignId: string, ownerId: string):
 
     const targetState = deployment.target_state as GoogleTargetState;
 
+    // 3. Fetch credentials
+    const { data: creds, error: credError } = await supabase
+      .from('integration_credentials')
+      .select('encrypted_credentials')
+      .eq('owner_id', authenticatedUid)
+      .eq('provider', 'google')
+      .single();
+
+    if (credError || !creds) throw new GoogleProviderError(ERROR_CODES.AUTH_FAILED, 'Google integration credentials missing');
+
+    const decrypted = JSON.parse(creds.encrypted_credentials);
+    const refreshToken = decryptCredential(decrypted.refresh_token);
+
+    // 4. verifyTestAccount
+    const verifiedCustomerId = await verifyTestAccount(
+      process.env.GOOGLE_ADS_DEVELOPER_TOKEN!,
+      refreshToken,
+      process.env.GOOGLE_CLIENT_ID!,
+      process.env.GOOGLE_CLIENT_SECRET!,
+      process.env.GOOGLE_ADS_TEST_CUSTOMER_ID!,
+      process.env.GOOGLE_ADS_TEST_MANAGER_ID!
+    );
+
+    // 5. Authoritative budget validation
     const budgetAmount = Number(campaign.budget_amount);
     const durationDays = Number(campaign.duration_days);
 
@@ -88,26 +112,23 @@ export async function deployGoogleCampaign(campaignId: string, ownerId: string):
       }
     }
 
-    // 3. Fetch credentials
-    const { data: creds, error: credError } = await supabase
-      .from('integration_credentials')
-      .select('encrypted_credentials')
-      .eq('owner_id', authenticatedUid)
-      .eq('provider', 'google')
-      .single();
-
-    if (credError || !creds) throw new GoogleProviderError(ERROR_CODES.AUTH_FAILED, 'Google integration credentials missing');
-
-    const decrypted = JSON.parse(creds.encrypted_credentials);
-    const refreshToken = decryptCredential(decrypted.refresh_token);
-    const verifiedCustomerId = await verifyTestAccount(
-      process.env.GOOGLE_ADS_DEVELOPER_TOKEN!,
-      refreshToken,
-      process.env.GOOGLE_CLIENT_ID!,
-      process.env.GOOGLE_CLIENT_SECRET!,
-      process.env.GOOGLE_ADS_TEST_CUSTOMER_ID!,
-      process.env.GOOGLE_ADS_TEST_MANAGER_ID!
-    );
+    // 6. EXPLICIT MUTATION KILL SWITCH
+    if (process.env.GOOGLE_ADS_EXECUTION_MODE !== 'test') {
+      throw new GoogleProviderError('REAL_TEST_MUTATION_NOT_AUTHORIZED', 'Execution mode must be exactly "test".');
+    }
+    if (process.env.GOOGLE_ADS_ALLOW_MUTATIONS !== 'true') {
+      throw new GoogleProviderError('REAL_TEST_MUTATION_NOT_AUTHORIZED', 'Mutations are explicitly disabled.');
+    }
+    if (process.env.NODE_ENV === 'production') {
+      throw new GoogleProviderError('REAL_TEST_MUTATION_NOT_AUTHORIZED', 'Test mutations cannot run in a production environment.');
+    }
+    if (verifiedCustomerId !== process.env.GOOGLE_ADS_TEST_CUSTOMER_ID) {
+      throw new GoogleProviderError('REAL_TEST_MUTATION_NOT_AUTHORIZED', 'Verified customer ID does not match configured test customer ID.');
+    }
+    if (process.env.GOOGLE_ADS_DEPLOYMENT_CONFIRMATION !== 'CONFIRMED') {
+      throw new GoogleProviderError('REAL_TEST_MUTATION_NOT_AUTHORIZED', 'Missing explicit deployment confirmation.');
+    }
+    // Note: verifyTestAccount already strictly ensures test_account === true.
 
     const client = new GoogleAdsMutationClient({
       developerToken: process.env.GOOGLE_ADS_DEVELOPER_TOKEN!,
@@ -135,7 +156,7 @@ export async function deployGoogleCampaign(campaignId: string, ownerId: string):
     // 4. Create Budget
     if (!externalState.campaignBudgetResourceName) {
       await updateExternalState({}, 'CREATING_CAMPAIGN');
-      const budgetName = `MKTOS-${deployment.id}-BUDGET`;
+      const budgetName = `MKTOS-E2E-${deployment.id}-BUDGET`;
       let budgetResource = await client.findBudgetByName(budgetName);
       if (!budgetResource) {
         const budgetAmountMicros = targetState.campaign.budget * 1000000;
@@ -146,7 +167,7 @@ export async function deployGoogleCampaign(campaignId: string, ownerId: string):
 
     // 5. Create Campaign
     if (!externalState.campaignResourceName) {
-      const campName = `MKTOS-${deployment.id}-CAMPAIGN`;
+      const campName = `MKTOS-E2E-${deployment.id}-CAMPAIGN`;
       let campaignResource = await client.findCampaignByName(campName);
       if (!campaignResource) {
         campaignResource = await client.createCampaign(
@@ -162,7 +183,7 @@ export async function deployGoogleCampaign(campaignId: string, ownerId: string):
     // 6. Create Ad Group
     if (!externalState.adGroupResourceName) {
       await updateExternalState({}, 'CREATING_AD_GROUP');
-      const adGroupName = `MKTOS-${deployment.id}-ADGROUP`;
+      const adGroupName = `MKTOS-E2E-${deployment.id}-ADGROUP`;
       let adGroupResource = await client.findAdGroupByName(externalState.campaignResourceName, adGroupName);
       if (!adGroupResource) {
         adGroupResource = await client.createAdGroup(adGroupName, externalState.campaignResourceName);

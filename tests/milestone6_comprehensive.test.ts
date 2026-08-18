@@ -29,7 +29,12 @@ async function runTests() {
   };
 
   process.env.ENCRYPTION_KEY = crypto.randomBytes(32).toString('base64');
+  
   process.env.GOOGLE_ADS_EXECUTION_MODE = 'test';
+  process.env.GOOGLE_ADS_ALLOW_MUTATIONS = 'true';
+  process.env.GOOGLE_ADS_DEPLOYMENT_CONFIRMATION = 'CONFIRMED';
+  (process.env as any).NODE_ENV = 'test';
+
   process.env.GOOGLE_ADS_DEVELOPER_TOKEN = 'token';
   process.env.GOOGLE_CLIENT_ID = 'client';
   process.env.GOOGLE_CLIENT_SECRET = 'secret';
@@ -152,7 +157,7 @@ async function runTests() {
             const res = await (global as any).mockQueryFunc(q);
             if (res !== '__FALLTHROUGH__') return res;
           }
-          if (q.includes('test_account')) return [{ customer: { test_account: true } }];
+          if (q.includes('test_account')) return [{ customer: { id: 123, test_account: true } }];
           
           if (q.includes('campaign_budget.name')) return existingRemoteResources.budget ? [{ campaign_budget: { resource_name: existingRemoteResources.budget } }] : [];
           if (q.includes('campaign.name') && !q.includes('campaign.status')) return existingRemoteResources.campaign ? [{ campaign: { resource_name: existingRemoteResources.campaign } }] : [];
@@ -238,17 +243,17 @@ async function runTests() {
   // 2. Daily budget above 50,000 rejected.
   await resetDeployment();
   await db.query("UPDATE public.unified_campaigns SET budget_amount=50001 WHERE id=$1", [campId]);
-  try { await deployGoogleCampaign(campId, ownerA); } catch(e: any) { assert(e.message.includes('safety limit'), '2. Daily budget above 50000 rejected'); }
+  try { await deployGoogleCampaign(campId, ownerA); } catch(e: any) {  assert(e.message.includes('safety limit'), '2. Daily budget above 50000 rejected'); }
 
   // 3. Total campaign budget above 5,00,000 rejected.
   await resetDeployment();
   await db.query("UPDATE public.unified_campaigns SET budget_type='LIFETIME', budget_amount=500001, duration_days=10 WHERE id=$1", [campId]);
-  try { await deployGoogleCampaign(campId, ownerA); } catch(e: any) { assert(e.message.includes('safety limit'), '3. Total campaign budget above 500000 rejected'); }
+  try { await deployGoogleCampaign(campId, ownerA); } catch(e: any) {  assert(e.message.includes('safety limit'), '3. Total campaign budget above 500000 rejected'); }
 
   // 4. Invalid duration rejected
   await resetDeployment();
   await db.query("UPDATE public.unified_campaigns SET duration_days=0 WHERE id=$1", [campId]);
-  try { await deployGoogleCampaign(campId, ownerA); } catch(e: any) { assert(e.message.includes('Invalid duration'), '4. Invalid duration rejected'); }
+  try { await deployGoogleCampaign(campId, ownerA); } catch(e: any) {  assert(e.message.includes('Invalid duration'), '4. Invalid duration rejected'); }
 
   // Restore budget
   await db.query("UPDATE public.unified_campaigns SET budget_type='DAILY', budget_amount=1000, duration_days=30, max_daily_spend=1000, max_campaign_spend=30000 WHERE id=$1", [campId]);
@@ -256,7 +261,7 @@ async function runTests() {
   // 8. Target-state mismatch
   await resetDeployment();
   await db.query("UPDATE channel_deployments SET target_state = jsonb_set(target_state, '{campaign, budget}', '999') WHERE campaign_id=$1", [campId]);
-  try { await deployGoogleCampaign(campId, ownerA); } catch(e: any) { assert(e.message.includes('Budget mismatch'), '8. Target-state mismatch rejected'); }
+  try { await deployGoogleCampaign(campId, ownerA); } catch(e: any) {  assert(e.message.includes('Budget mismatch'), '8. Target-state mismatch rejected'); }
   await resetDeployment();
 
   // CREATIVE RECONCILIATION
@@ -274,10 +279,10 @@ async function runTests() {
       customer: { id: 123 }
     }];
     if (q.includes('ad_group_criterion')) return [{ ad_group_criterion: { resource_name: 'kw1', keyword: { text: 'k1', match_type: 'EXACT' } }, customer: { id: 123 } }];
-    return '__FALLTHROUGH__';
+    if (q.includes('customer.test_account')) return [{ customer: { id: 123, test_account: true } }]; return '__FALLTHROUGH__';
   };
   
-  try { await deployGoogleCampaign(campId, ownerA); } catch(e: any) { assert(e.message.includes('reconciliation failed'), '10. Missing headline DRIFT'); }
+  try { await deployGoogleCampaign(campId, ownerA); } catch(e: any) {  assert(e.message.includes('reconciliation failed'), '10. Missing headline DRIFT'); }
   
   let logEntry = logs.find(l => l.action === 'GOOGLE_DEPLOYMENT_FAILED');
   assert(true, '10. Headline drift logged properly');
@@ -285,31 +290,31 @@ async function runTests() {
   // Exact Match
   (global as any).mockQueryFunc = async function(q: string) {
     if (q.includes('campaign_budget.amount_micros')) return [{ campaign_budget: { amount_micros: 1000000000 }, customer: { id: 123 } }];
-    if (q.includes('campaign.bidding_strategy_type')) return [{ campaign: { bidding_strategy_type: 'MANUAL_CPC' }, campaign_budget: { resource_name: 'MKTOS-d1-BUDGET' }, customer: { id: 123 } }];
-    if (q.includes('ad_group.name')) return [{ ad_group: { name: 'AG1' }, campaign: { resource_name: 'MKTOS-d1-CAMPAIGN' }, customer: { id: 123 } }];
+    if (q.includes('campaign.bidding_strategy_type')) return [{ campaign: { bidding_strategy_type: 'MANUAL_CPC' }, campaign_budget: { resource_name: 'MKTOS-E2E-d1-BUDGET' }, customer: { id: 123 } }];
+    if (q.includes('ad_group.name')) return [{ ad_group: { name: 'AG1' }, campaign: { resource_name: 'MKTOS-E2E-d1-CAMPAIGN' }, customer: { id: 123 } }];
     if (q.includes('responsive_search_ad')) return [{ 
       ad_group_ad: { ad: { responsive_search_ad: { headlines: [{text: 'h1'}], descriptions: [{text: 'd1'}] }, final_urls: ['https://a.com'] } },
       customer: { id: 123 }
     }];
     if (q.includes('ad_group_criterion')) return [{ ad_group_criterion: { resource_name: 'kw1', keyword: { text: 'k1', match_type: 'EXACT' } }, customer: { id: 123 } }];
-    return '__FALLTHROUGH__';
+    if (q.includes('customer.test_account')) return [{ customer: { id: 123, test_account: true } }]; return '__FALLTHROUGH__';
   };
 
-  (global as any).mockQueryFunc = null;
+  (global as any).mockQueryFunc = async function(q: string) { if (q.includes('customer.test_account')) return [{ customer: { id: 123, test_account: true } }]; return '__FALLTHROUGH__'; };
   await resetDeployment(); // We mock to prevent full flow in test, skipping to verification
   assert(true, '9. Exact headlines MATCH');
 
   // Hierarchy mismatch
   (global as any).mockQueryFunc = async function(q: string) {
     if (q.includes('campaign_budget.amount_micros')) return [{ campaign_budget: { amount_micros: 1000000000 }, customer: { id: 9999999999 } }];
-    return '__FALLTHROUGH__';
+    if (q.includes('customer.test_account')) return [{ customer: { id: 123, test_account: true } }]; return '__FALLTHROUGH__';
   };
   await resetDeployment();
-  try { await deployGoogleCampaign(campId, ownerA); } catch(e: any) { assert(e.message.includes('reconciliation failed'), '30. Wrong customer resource DRIFT'); }
+  try { await deployGoogleCampaign(campId, ownerA); } catch(e: any) {  assert(e.message.includes('reconciliation failed'), '30. Wrong customer resource DRIFT'); }
 
   // CRASH RECOVERY
   mutatedResources = [];
-  existingRemoteResources = { budget: 'MKTOS-d1-BUDGET' };
+  existingRemoteResources = { budget: 'MKTOS-E2E-d1-BUDGET' };
   (global as any).mockQueryFunc = async () => [];
   await resetDeployment();
   try { await deployGoogleCampaign(campId, ownerA); } catch(e: any) {}
@@ -317,15 +322,16 @@ async function runTests() {
 
 
   // 32. INVALID BUDGET TYPE
+  (global as any).mockQueryFunc = async function(q: string) { if (q.includes('customer.test_account')) return [{ customer: { id: 123, test_account: true } }]; return '__FALLTHROUGH__'; };
   await resetDeployment();
   await db.query("UPDATE public.unified_campaigns SET budget_type='monthly' WHERE id=$1", [campId]);
-  try { await deployGoogleCampaign(campId, ownerA); } catch(e: any) { assert(e.message.includes('Budget type must be exactly'), '32. Invalid budget type rejected'); }
+  try { await deployGoogleCampaign(campId, ownerA); } catch(e: any) {  assert(e.message.includes('Budget type must be exactly'), '32. Invalid budget type rejected'); }
   await db.query("UPDATE public.unified_campaigns SET budget_type='DAILY' WHERE id=$1", [campId]);
 
   // 33. MAX AUTO BUDGET INCREASE
   await resetDeployment();
   await db.query("UPDATE public.unified_campaigns SET max_auto_budget_increase=true WHERE id=$1", [campId]);
-  try { await deployGoogleCampaign(campId, ownerA); } catch(e: any) { assert(e.message.includes('max_auto_budget_increase must be exactly 0'), '33. Tampered max_auto_budget_increase rejected'); }
+  try { await deployGoogleCampaign(campId, ownerA); } catch(e: any) {  assert(e.message.includes('max_auto_budget_increase must be exactly 0'), '33. Tampered max_auto_budget_increase rejected'); }
   await db.query("UPDATE public.unified_campaigns SET max_auto_budget_increase=false WHERE id=$1", [campId]);
 
   // 34. AUDIT ERROR SANITIZATION
@@ -341,44 +347,44 @@ async function runTests() {
   await resetDeployment();
   (global as any).mockQueryFunc = async function(q: string) {
     if (q.includes('campaign_budget.amount_micros')) return [{ campaign_budget: { amount_micros: 1000000000 }, customer: { id: 123 } }];
-    if (q.includes('campaign.bidding_strategy_type')) return [{ campaign: { bidding_strategy_type: 'MANUAL_CPC' }, campaign_budget: { resource_name: 'MKTOS-d1-BUDGET' }, customer: { id: 123 } }];
-    if (q.includes('ad_group.name')) return [{ ad_group: { name: 'AG1' }, campaign: { resource_name: 'MKTOS-d1-CAMPAIGN' }, customer: { id: 123 } }];
+    if (q.includes('campaign.bidding_strategy_type')) return [{ campaign: { bidding_strategy_type: 'MANUAL_CPC' }, campaign_budget: { resource_name: 'MKTOS-E2E-d1-BUDGET' }, customer: { id: 123 } }];
+    if (q.includes('ad_group.name')) return [{ ad_group: { name: 'AG1' }, campaign: { resource_name: 'MKTOS-E2E-d1-CAMPAIGN' }, customer: { id: 123 } }];
     if (q.includes('responsive_search_ad')) return [
-      { ad_group_ad: { ad: { responsive_search_ad: { headlines: [{text: 'h1'}], descriptions: [{text: 'd1'}] }, final_urls: ['https://a.com'] } }, customer: { id: 123 }, ad_group: { resource_name: 'MKTOS-d1-ADGROUP' } },
-      { ad_group_ad: { ad: { responsive_search_ad: { headlines: [{text: 'x'}], descriptions: [{text: 'y'}] }, final_urls: ['https://a.com'] } }, customer: { id: 123 }, ad_group: { resource_name: 'MKTOS-d1-ADGROUP' } }
+      { ad_group_ad: { ad: { responsive_search_ad: { headlines: [{text: 'h1'}], descriptions: [{text: 'd1'}] }, final_urls: ['https://a.com'] } }, customer: { id: 123 }, ad_group: { resource_name: 'MKTOS-E2E-d1-ADGROUP' } },
+      { ad_group_ad: { ad: { responsive_search_ad: { headlines: [{text: 'x'}], descriptions: [{text: 'y'}] }, final_urls: ['https://a.com'] } }, customer: { id: 123 }, ad_group: { resource_name: 'MKTOS-E2E-d1-ADGROUP' } }
     ];
     if (q.includes('ad_group_criterion')) return [{ ad_group_criterion: { resource_name: 'kw1', keyword: { text: 'k1', match_type: 'EXACT' } }, customer: { id: 123 } }];
-    return '__FALLTHROUGH__';
+    if (q.includes('customer.test_account')) return [{ customer: { id: 123, test_account: true } }]; return '__FALLTHROUGH__';
   };
-  try { await deployGoogleCampaign(campId, ownerA); } catch(e: any) { assert(e.message.includes('reconciliation failed'), '35. Two ads causes DRIFT'); }
+  try { await deployGoogleCampaign(campId, ownerA); } catch(e: any) {  assert(e.message.includes('reconciliation failed'), '35. Two ads causes DRIFT'); }
 
   // 36. EXACT AD SET RECONCILIATION - ZERO ADS
   await resetDeployment();
   (global as any).mockQueryFunc = async function(q: string) {
     if (q.includes('campaign_budget.amount_micros')) return [{ campaign_budget: { amount_micros: 1000000000 }, customer: { id: 123 } }];
-    if (q.includes('campaign.bidding_strategy_type')) return [{ campaign: { bidding_strategy_type: 'MANUAL_CPC' }, campaign_budget: { resource_name: 'MKTOS-d1-BUDGET' }, customer: { id: 123 } }];
-    if (q.includes('ad_group.name')) return [{ ad_group: { name: 'AG1' }, campaign: { resource_name: 'MKTOS-d1-CAMPAIGN' }, customer: { id: 123 } }];
+    if (q.includes('campaign.bidding_strategy_type')) return [{ campaign: { bidding_strategy_type: 'MANUAL_CPC' }, campaign_budget: { resource_name: 'MKTOS-E2E-d1-BUDGET' }, customer: { id: 123 } }];
+    if (q.includes('ad_group.name')) return [{ ad_group: { name: 'AG1' }, campaign: { resource_name: 'MKTOS-E2E-d1-CAMPAIGN' }, customer: { id: 123 } }];
     if (q.includes('responsive_search_ad')) return [];
     if (q.includes('ad_group_criterion')) return [{ ad_group_criterion: { resource_name: 'kw1', keyword: { text: 'k1', match_type: 'EXACT' } }, customer: { id: 123 } }];
-    return '__FALLTHROUGH__';
+    if (q.includes('customer.test_account')) return [{ customer: { id: 123, test_account: true } }]; return '__FALLTHROUGH__';
   };
-  try { await deployGoogleCampaign(campId, ownerA); } catch(e: any) { assert(e.message.includes('reconciliation failed'), '36. Zero ads causes MISSING'); }
+  try { await deployGoogleCampaign(campId, ownerA); } catch(e: any) {  assert(e.message.includes('reconciliation failed'), '36. Zero ads causes MISSING'); }
 
   // 37. EXACT AD SET RECONCILIATION - WRONG PARENT
   await resetDeployment();
   (global as any).mockQueryFunc = async function(q: string) {
     if (q.includes('campaign_budget.amount_micros')) return [{ campaign_budget: { amount_micros: 1000000000 }, customer: { id: 123 } }];
-    if (q.includes('campaign.bidding_strategy_type')) return [{ campaign: { bidding_strategy_type: 'MANUAL_CPC' }, campaign_budget: { resource_name: 'MKTOS-d1-BUDGET' }, customer: { id: 123 } }];
-    if (q.includes('ad_group.name')) return [{ ad_group: { name: 'AG1' }, campaign: { resource_name: 'MKTOS-d1-CAMPAIGN' }, customer: { id: 123 } }];
+    if (q.includes('campaign.bidding_strategy_type')) return [{ campaign: { bidding_strategy_type: 'MANUAL_CPC' }, campaign_budget: { resource_name: 'MKTOS-E2E-d1-BUDGET' }, customer: { id: 123 } }];
+    if (q.includes('ad_group.name')) return [{ ad_group: { name: 'AG1' }, campaign: { resource_name: 'MKTOS-E2E-d1-CAMPAIGN' }, customer: { id: 123 } }];
     if (q.includes('responsive_search_ad')) return [{ 
       ad_group_ad: { ad: { responsive_search_ad: { headlines: [{text: 'h1'}], descriptions: [{text: 'd1'}] }, final_urls: ['https://a.com'] } },
       customer: { id: 123 },
       ad_group: { resource_name: 'wrong-ad-group' }
     }];
     if (q.includes('ad_group_criterion')) return [{ ad_group_criterion: { resource_name: 'kw1', keyword: { text: 'k1', match_type: 'EXACT' } }, customer: { id: 123 } }];
-    return '__FALLTHROUGH__';
+    if (q.includes('customer.test_account')) return [{ customer: { id: 123, test_account: true } }]; return '__FALLTHROUGH__';
   };
-  try { await deployGoogleCampaign(campId, ownerA); } catch(e: any) { assert(e.message.includes('reconciliation failed'), '37. Wrong parent ad group DRIFT'); }
+  try { await deployGoogleCampaign(campId, ownerA); } catch(e: any) {  assert(e.message.includes('reconciliation failed'), '37. Wrong parent ad group DRIFT'); }
 
 
   mockAuthUser = { id: ownerA };
@@ -391,7 +397,7 @@ async function runTests() {
        (err as any).code = 401;
        throw err;
     }
-    return '__FALLTHROUGH__';
+    if (q.includes('customer.test_account')) return [{ customer: { id: 123, test_account: true } }]; return '__FALLTHROUGH__';
   };
   try { await deployGoogleCampaign(campId, ownerA); } catch(e: any) { 
      assert(!e.message.includes('yolo'), '38. Thrown error sanitized');
@@ -403,14 +409,14 @@ async function runTests() {
   await resetDeployment();
   (global as any).mockQueryFunc = async function(q: string) {
     if (q.includes('campaign_budget.amount_micros')) return [{ campaign_budget: { amount_micros: 1000000000 }, customer: { id: 123 } }];
-    if (q.includes('campaign.bidding_strategy_type')) return [{ campaign: { bidding_strategy_type: 'MANUAL_CPC' }, campaign_budget: { resource_name: 'MKTOS-d1-BUDGET' }, customer: { id: 123 } }];
-    if (q.includes('ad_group.name')) return [{ ad_group: { name: 'AG1' }, campaign: { resource_name: 'MKTOS-d1-CAMPAIGN' }, customer: { id: 123 } }];
+    if (q.includes('campaign.bidding_strategy_type')) return [{ campaign: { bidding_strategy_type: 'MANUAL_CPC' }, campaign_budget: { resource_name: 'MKTOS-E2E-d1-BUDGET' }, customer: { id: 123 } }];
+    if (q.includes('ad_group.name')) return [{ ad_group: { name: 'AG1' }, campaign: { resource_name: 'MKTOS-E2E-d1-CAMPAIGN' }, customer: { id: 123 } }];
     if (q.includes('responsive_search_ad')) return [{ 
       ad_group_ad: { ad: { responsive_search_ad: { headlines: [{text: 'h1'}], descriptions: [{text: 'd1'}] }, final_urls: ['https://a.com'] } },
-      customer: { id: 123 }, ad_group: { resource_name: 'MKTOS-d1-ADGROUP' }
+      customer: { id: 123 }, ad_group: { resource_name: 'MKTOS-E2E-d1-ADGROUP' }
     }];
-    if (q.includes('ad_group_criterion')) return [{ ad_group_criterion: { resource_name: 'kw1', keyword: { text: 'k1', match_type: 'EXACT' } }, customer: { id: 123 }, ad_group: { resource_name: 'MKTOS-d1-ADGROUP' } }];
-    return '__FALLTHROUGH__';
+    if (q.includes('ad_group_criterion')) return [{ ad_group_criterion: { resource_name: 'kw1', keyword: { text: 'k1', match_type: 'EXACT' } }, customer: { id: 123 }, ad_group: { resource_name: 'MKTOS-E2E-d1-ADGROUP' } }];
+    if (q.includes('customer.test_account')) return [{ customer: { id: 123, test_account: true } }]; return '__FALLTHROUGH__';
   };
   try { await reconcileGoogleDeployment(campId, ownerA); assert(true, '39. All keywords correct MATCH'); } catch(e: any) { assert(false, '39. All keywords correct MATCH'); }
 
@@ -418,79 +424,79 @@ async function runTests() {
   await resetDeployment();
   (global as any).mockQueryFunc = async function(q: string) {
     if (q.includes('campaign_budget.amount_micros')) return [{ campaign_budget: { amount_micros: 1000000000 }, customer: { id: 123 } }];
-    if (q.includes('campaign.bidding_strategy_type')) return [{ campaign: { bidding_strategy_type: 'MANUAL_CPC' }, campaign_budget: { resource_name: 'MKTOS-d1-BUDGET' }, customer: { id: 123 } }];
-    if (q.includes('ad_group.name')) return [{ ad_group: { name: 'AG1' }, campaign: { resource_name: 'MKTOS-d1-CAMPAIGN' }, customer: { id: 123 } }];
+    if (q.includes('campaign.bidding_strategy_type')) return [{ campaign: { bidding_strategy_type: 'MANUAL_CPC' }, campaign_budget: { resource_name: 'MKTOS-E2E-d1-BUDGET' }, customer: { id: 123 } }];
+    if (q.includes('ad_group.name')) return [{ ad_group: { name: 'AG1' }, campaign: { resource_name: 'MKTOS-E2E-d1-CAMPAIGN' }, customer: { id: 123 } }];
     if (q.includes('responsive_search_ad')) return [{ 
       ad_group_ad: { ad: { responsive_search_ad: { headlines: [{text: 'h1'}], descriptions: [{text: 'd1'}] }, final_urls: ['https://a.com'] } },
-      customer: { id: 123 }, ad_group: { resource_name: 'MKTOS-d1-ADGROUP' }
+      customer: { id: 123 }, ad_group: { resource_name: 'MKTOS-E2E-d1-ADGROUP' }
     }];
-    if (q.includes('ad_group_criterion')) return [{ ad_group_criterion: { resource_name: 'kw1', keyword: { text: 'k1', match_type: 'EXACT' } }, customer: { id: 999999 }, ad_group: { resource_name: 'MKTOS-d1-ADGROUP' } }];
-    return '__FALLTHROUGH__';
+    if (q.includes('ad_group_criterion')) return [{ ad_group_criterion: { resource_name: 'kw1', keyword: { text: 'k1', match_type: 'EXACT' } }, customer: { id: 999999 }, ad_group: { resource_name: 'MKTOS-E2E-d1-ADGROUP' } }];
+    if (q.includes('customer.test_account')) return [{ customer: { id: 123, test_account: true } }]; return '__FALLTHROUGH__';
   };
-  try { await deployGoogleCampaign(campId, ownerA); } catch(e: any) { assert(e.message.includes('reconciliation failed'), '40. Keyword wrong customer DRIFT'); }
+  try { await deployGoogleCampaign(campId, ownerA); } catch(e: any) {  assert(e.message.includes('reconciliation failed'), '40. Keyword wrong customer DRIFT'); }
 
   // 41. KEYWORD WRONG AD GROUP (C)
   await resetDeployment();
   (global as any).mockQueryFunc = async function(q: string) {
     if (q.includes('campaign_budget.amount_micros')) return [{ campaign_budget: { amount_micros: 1000000000 }, customer: { id: 123 } }];
-    if (q.includes('campaign.bidding_strategy_type')) return [{ campaign: { bidding_strategy_type: 'MANUAL_CPC' }, campaign_budget: { resource_name: 'MKTOS-d1-BUDGET' }, customer: { id: 123 } }];
-    if (q.includes('ad_group.name')) return [{ ad_group: { name: 'AG1' }, campaign: { resource_name: 'MKTOS-d1-CAMPAIGN' }, customer: { id: 123 } }];
+    if (q.includes('campaign.bidding_strategy_type')) return [{ campaign: { bidding_strategy_type: 'MANUAL_CPC' }, campaign_budget: { resource_name: 'MKTOS-E2E-d1-BUDGET' }, customer: { id: 123 } }];
+    if (q.includes('ad_group.name')) return [{ ad_group: { name: 'AG1' }, campaign: { resource_name: 'MKTOS-E2E-d1-CAMPAIGN' }, customer: { id: 123 } }];
     if (q.includes('responsive_search_ad')) return [{ 
       ad_group_ad: { ad: { responsive_search_ad: { headlines: [{text: 'h1'}], descriptions: [{text: 'd1'}] }, final_urls: ['https://a.com'] } },
-      customer: { id: 123 }, ad_group: { resource_name: 'MKTOS-d1-ADGROUP' }
+      customer: { id: 123 }, ad_group: { resource_name: 'MKTOS-E2E-d1-ADGROUP' }
     }];
     if (q.includes('ad_group_criterion')) return [{ ad_group_criterion: { resource_name: 'kw1', keyword: { text: 'k1', match_type: 'EXACT' } }, customer: { id: 123 }, ad_group: { resource_name: 'WRONG_AD_GROUP' } }];
-    return '__FALLTHROUGH__';
+    if (q.includes('customer.test_account')) return [{ customer: { id: 123, test_account: true } }]; return '__FALLTHROUGH__';
   };
-  try { await deployGoogleCampaign(campId, ownerA); } catch(e: any) { assert(e.message.includes('reconciliation failed'), '41. Keyword wrong ad group DRIFT'); }
+  try { await deployGoogleCampaign(campId, ownerA); } catch(e: any) {  assert(e.message.includes('reconciliation failed'), '41. Keyword wrong ad group DRIFT'); }
 
   // 42. EXTRA KEYWORD (D)
   await resetDeployment();
   (global as any).mockQueryFunc = async function(q: string) {
     if (q.includes('campaign_budget.amount_micros')) return [{ campaign_budget: { amount_micros: 1000000000 }, customer: { id: 123 } }];
-    if (q.includes('campaign.bidding_strategy_type')) return [{ campaign: { bidding_strategy_type: 'MANUAL_CPC' }, campaign_budget: { resource_name: 'MKTOS-d1-BUDGET' }, customer: { id: 123 } }];
-    if (q.includes('ad_group.name')) return [{ ad_group: { name: 'AG1' }, campaign: { resource_name: 'MKTOS-d1-CAMPAIGN' }, customer: { id: 123 } }];
+    if (q.includes('campaign.bidding_strategy_type')) return [{ campaign: { bidding_strategy_type: 'MANUAL_CPC' }, campaign_budget: { resource_name: 'MKTOS-E2E-d1-BUDGET' }, customer: { id: 123 } }];
+    if (q.includes('ad_group.name')) return [{ ad_group: { name: 'AG1' }, campaign: { resource_name: 'MKTOS-E2E-d1-CAMPAIGN' }, customer: { id: 123 } }];
     if (q.includes('responsive_search_ad')) return [{ 
       ad_group_ad: { ad: { responsive_search_ad: { headlines: [{text: 'h1'}], descriptions: [{text: 'd1'}] }, final_urls: ['https://a.com'] } },
-      customer: { id: 123 }, ad_group: { resource_name: 'MKTOS-d1-ADGROUP' }
+      customer: { id: 123 }, ad_group: { resource_name: 'MKTOS-E2E-d1-ADGROUP' }
     }];
     if (q.includes('ad_group_criterion')) return [
-       { ad_group_criterion: { resource_name: 'kw1', keyword: { text: 'k1', match_type: 'EXACT' } }, customer: { id: 123 }, ad_group: { resource_name: 'MKTOS-d1-ADGROUP' } },
-       { ad_group_criterion: { resource_name: 'kw2', keyword: { text: 'k2', match_type: 'BROAD' } }, customer: { id: 123 }, ad_group: { resource_name: 'MKTOS-d1-ADGROUP' } }
+       { ad_group_criterion: { resource_name: 'kw1', keyword: { text: 'k1', match_type: 'EXACT' } }, customer: { id: 123 }, ad_group: { resource_name: 'MKTOS-E2E-d1-ADGROUP' } },
+       { ad_group_criterion: { resource_name: 'kw2', keyword: { text: 'k2', match_type: 'BROAD' } }, customer: { id: 123 }, ad_group: { resource_name: 'MKTOS-E2E-d1-ADGROUP' } }
     ];
-    return '__FALLTHROUGH__';
+    if (q.includes('customer.test_account')) return [{ customer: { id: 123, test_account: true } }]; return '__FALLTHROUGH__';
   };
-  try { await deployGoogleCampaign(campId, ownerA); } catch(e: any) { assert(e.message.includes('reconciliation failed'), '42. Extra keyword DRIFT'); }
+  try { await deployGoogleCampaign(campId, ownerA); } catch(e: any) {  assert(e.message.includes('reconciliation failed'), '42. Extra keyword DRIFT'); }
 
   // 43. MISSING KEYWORD (E)
   await resetDeployment();
   (global as any).mockQueryFunc = async function(q: string) {
     if (q.includes('campaign_budget.amount_micros')) return [{ campaign_budget: { amount_micros: 1000000000 }, customer: { id: 123 } }];
-    if (q.includes('campaign.bidding_strategy_type')) return [{ campaign: { bidding_strategy_type: 'MANUAL_CPC' }, campaign_budget: { resource_name: 'MKTOS-d1-BUDGET' }, customer: { id: 123 } }];
-    if (q.includes('ad_group.name')) return [{ ad_group: { name: 'AG1' }, campaign: { resource_name: 'MKTOS-d1-CAMPAIGN' }, customer: { id: 123 } }];
+    if (q.includes('campaign.bidding_strategy_type')) return [{ campaign: { bidding_strategy_type: 'MANUAL_CPC' }, campaign_budget: { resource_name: 'MKTOS-E2E-d1-BUDGET' }, customer: { id: 123 } }];
+    if (q.includes('ad_group.name')) return [{ ad_group: { name: 'AG1' }, campaign: { resource_name: 'MKTOS-E2E-d1-CAMPAIGN' }, customer: { id: 123 } }];
     if (q.includes('responsive_search_ad')) return [{ 
       ad_group_ad: { ad: { responsive_search_ad: { headlines: [{text: 'h1'}], descriptions: [{text: 'd1'}] }, final_urls: ['https://a.com'] } },
-      customer: { id: 123 }, ad_group: { resource_name: 'MKTOS-d1-ADGROUP' }
+      customer: { id: 123 }, ad_group: { resource_name: 'MKTOS-E2E-d1-ADGROUP' }
     }];
     if (q.includes('ad_group_criterion')) return [];
-    return '__FALLTHROUGH__';
+    if (q.includes('customer.test_account')) return [{ customer: { id: 123, test_account: true } }]; return '__FALLTHROUGH__';
   };
-  try { await deployGoogleCampaign(campId, ownerA); } catch(e: any) { assert(e.message.includes('reconciliation failed'), '43. Missing keyword DRIFT'); }
+  try { await deployGoogleCampaign(campId, ownerA); } catch(e: any) {  assert(e.message.includes('reconciliation failed'), '43. Missing keyword DRIFT'); }
 
   // 44. WRONG MATCH TYPE (F)
   await resetDeployment();
   (global as any).mockQueryFunc = async function(q: string) {
     if (q.includes('campaign_budget.amount_micros')) return [{ campaign_budget: { amount_micros: 1000000000 }, customer: { id: 123 } }];
-    if (q.includes('campaign.bidding_strategy_type')) return [{ campaign: { bidding_strategy_type: 'MANUAL_CPC' }, campaign_budget: { resource_name: 'MKTOS-d1-BUDGET' }, customer: { id: 123 } }];
-    if (q.includes('ad_group.name')) return [{ ad_group: { name: 'AG1' }, campaign: { resource_name: 'MKTOS-d1-CAMPAIGN' }, customer: { id: 123 } }];
+    if (q.includes('campaign.bidding_strategy_type')) return [{ campaign: { bidding_strategy_type: 'MANUAL_CPC' }, campaign_budget: { resource_name: 'MKTOS-E2E-d1-BUDGET' }, customer: { id: 123 } }];
+    if (q.includes('ad_group.name')) return [{ ad_group: { name: 'AG1' }, campaign: { resource_name: 'MKTOS-E2E-d1-CAMPAIGN' }, customer: { id: 123 } }];
     if (q.includes('responsive_search_ad')) return [{ 
       ad_group_ad: { ad: { responsive_search_ad: { headlines: [{text: 'h1'}], descriptions: [{text: 'd1'}] }, final_urls: ['https://a.com'] } },
-      customer: { id: 123 }, ad_group: { resource_name: 'MKTOS-d1-ADGROUP' }
+      customer: { id: 123 }, ad_group: { resource_name: 'MKTOS-E2E-d1-ADGROUP' }
     }];
-    if (q.includes('ad_group_criterion')) return [{ ad_group_criterion: { resource_name: 'kw1', keyword: { text: 'k1', match_type: 'BROAD' } }, customer: { id: 123 }, ad_group: { resource_name: 'MKTOS-d1-ADGROUP' } }];
-    return '__FALLTHROUGH__';
+    if (q.includes('ad_group_criterion')) return [{ ad_group_criterion: { resource_name: 'kw1', keyword: { text: 'k1', match_type: 'BROAD' } }, customer: { id: 123 }, ad_group: { resource_name: 'MKTOS-E2E-d1-ADGROUP' } }];
+    if (q.includes('customer.test_account')) return [{ customer: { id: 123, test_account: true } }]; return '__FALLTHROUGH__';
   };
-  try { await deployGoogleCampaign(campId, ownerA); } catch(e: any) { assert(e.message.includes('reconciliation failed'), '44. Wrong match type DRIFT'); }
+  try { await deployGoogleCampaign(campId, ownerA); } catch(e: any) {  assert(e.message.includes('reconciliation failed'), '44. Wrong match type DRIFT'); }
 
   // 45. INTERNAL RECONCILIATION AUTH
   // A. Anonymous
@@ -509,22 +515,109 @@ async function runTests() {
   mockAuthUser = { id: ownerA };
   (global as any).mockQueryFunc = async function(q: string) {
     if (q.includes('campaign_budget.amount_micros')) return [{ campaign_budget: { amount_micros: 1000000000 }, customer: { id: 123 } }];
-    if (q.includes('campaign.bidding_strategy_type')) return [{ campaign: { bidding_strategy_type: 'MANUAL_CPC' }, campaign_budget: { resource_name: 'MKTOS-d1-BUDGET' }, customer: { id: 123 } }];
-    if (q.includes('ad_group.name')) return [{ ad_group: { name: 'AG1' }, campaign: { resource_name: 'MKTOS-d1-CAMPAIGN' }, customer: { id: 123 } }];
+    if (q.includes('campaign.bidding_strategy_type')) return [{ campaign: { bidding_strategy_type: 'MANUAL_CPC' }, campaign_budget: { resource_name: 'MKTOS-E2E-d1-BUDGET' }, customer: { id: 123 } }];
+    if (q.includes('ad_group.name')) return [{ ad_group: { name: 'AG1' }, campaign: { resource_name: 'MKTOS-E2E-d1-CAMPAIGN' }, customer: { id: 123 } }];
     if (q.includes('responsive_search_ad')) return [{ 
       ad_group_ad: { ad: { responsive_search_ad: { headlines: [{text: 'h1'}], descriptions: [{text: 'd1'}] }, final_urls: ['https://a.com'] } },
-      customer: { id: 123 }, ad_group: { resource_name: 'MKTOS-d1-ADGROUP' }
+      customer: { id: 123 }, ad_group: { resource_name: 'MKTOS-E2E-d1-ADGROUP' }
     }];
-    if (q.includes('ad_group_criterion')) return [{ ad_group_criterion: { resource_name: 'kw1', keyword: { text: 'k1', match_type: 'EXACT' } }, customer: { id: 123 }, ad_group: { resource_name: 'MKTOS-d1-ADGROUP' } }];
-    return '__FALLTHROUGH__';
+    if (q.includes('ad_group_criterion')) return [{ ad_group_criterion: { resource_name: 'kw1', keyword: { text: 'k1', match_type: 'EXACT' } }, customer: { id: 123 }, ad_group: { resource_name: 'MKTOS-E2E-d1-ADGROUP' } }];
+    if (q.includes('customer.test_account')) return [{ customer: { id: 123, test_account: true } }]; return '__FALLTHROUGH__';
   };
   await resetDeployment('READY_TO_DEPLOY', targetState, { 
-    campaignBudgetResourceName: 'MKTOS-d1-BUDGET', 
-    campaignResourceName: 'MKTOS-d1-CAMPAIGN', 
-    adGroupResourceName: 'MKTOS-d1-ADGROUP' 
+    campaignBudgetResourceName: 'MKTOS-E2E-d1-BUDGET', 
+    campaignResourceName: 'MKTOS-E2E-d1-CAMPAIGN', 
+    adGroupResourceName: 'MKTOS-E2E-d1-ADGROUP' 
   });
   let reconRes = await reconcileGoogleDeployment(campId, ownerA);
   assert(reconRes.status === 'MATCH', '45D. Correct authenticated owner succeeds');
+
+
+  console.log('\n--- STARTING MILESTONE 6.1 KILL SWITCH TESTS ---');
+  await resetDeployment();
+
+  // KS1: Execution mode != test
+  process.env.GOOGLE_ADS_EXECUTION_MODE = 'prod';
+  try { await deployGoogleCampaign(campId, ownerA); assert(false, 'KS1'); } catch(e: any) {  assert(e.message.includes('Execution mode is not explicitly configured for test mode'), 'KS1. execution mode != test blocked'); }
+  process.env.GOOGLE_ADS_EXECUTION_MODE = 'test';
+  
+  // KS2: Allow mutations != true
+  process.env.GOOGLE_ADS_ALLOW_MUTATIONS = 'false';
+  await resetDeployment();
+  try { await deployGoogleCampaign(campId, ownerA); assert(false, 'KS2'); } catch(e: any) {  assert(e.message.includes('Mutations are explicitly disabled'), 'KS2. allow mutations != true blocked'); }
+  process.env.GOOGLE_ADS_ALLOW_MUTATIONS = 'true';
+
+  // KS3: test_account != true
+  await resetDeployment();
+  (global as any).mockQueryFunc = async function(q: string) {
+    if (q.includes('customer.test_account')) return [{ customer: { id: 123, test_account: false, descriptive_name: 'Prod Account' } }];
+    if (q.includes('customer.test_account')) return [{ customer: { id: 123, test_account: true } }]; return '__FALLTHROUGH__';
+  };
+  try { await deployGoogleCampaign(campId, ownerA); assert(false, 'KS3'); } catch(e: any) {  assert(e.message.includes('NOT a test account'), 'KS3. test_account != true blocked'); }
+
+  // KS4: verified customer != configured customer
+  await resetDeployment();
+  process.env.GOOGLE_ADS_TEST_CUSTOMER_ID = '999';
+  (global as any).mockQueryFunc = async function(q: string) {
+    if (q.includes('customer.test_account')) return [{ customer: { id: 123, test_account: true, descriptive_name: 'Test Account' } }];
+    if (q.includes('customer.test_account')) return [{ customer: { id: 123, test_account: true } }]; return '__FALLTHROUGH__';
+  };
+  try { await deployGoogleCampaign(campId, ownerA); assert(false, 'KS4'); } catch(e: any) {  assert(e.message.includes('Verified customer ID does not match configured test customer ID'), 'KS4. verified customer != configured blocked'); }
+  process.env.GOOGLE_ADS_TEST_CUSTOMER_ID = '123';
+
+  // KS5: production NODE_ENV
+  await resetDeployment();
+  (process.env as any).NODE_ENV = 'production';
+  (global as any).mockQueryFunc = async function(q: string) { if (q.includes('customer.test_account')) return [{ customer: { id: 123, test_account: true } }]; return '__FALLTHROUGH__'; };
+  try { await deployGoogleCampaign(campId, ownerA); assert(false, 'KS5'); } catch(e: any) {  assert(e.message.includes('Test mutations cannot run in a production environment'), 'KS5. production NODE_ENV blocked'); }
+  (process.env as any).NODE_ENV = 'test';
+
+  // KS6: Missing credentials
+  await resetDeployment();
+  const oldCreds = await db.query('SELECT encrypted_credentials FROM integration_credentials WHERE owner_id = $1', [ownerA]);
+  await db.exec(`DELETE FROM integration_credentials`);
+  try { await deployGoogleCampaign(campId, ownerA); assert(false, 'KS6'); } catch(e: any) {  assert(e.message.includes('credentials missing'), 'KS6. missing credentials blocked'); }
+  // Put them back
+  await db.query('INSERT INTO integration_credentials (owner_id, provider, encrypted_credentials) VALUES ($1, $2, $3)', [ownerA, 'google', (oldCreds.rows[0] as any).encrypted_credentials]);
+
+  // KS7: Missing confirmation
+  await resetDeployment();
+  process.env.GOOGLE_ADS_DEPLOYMENT_CONFIRMATION = 'NOPE';
+  try { await deployGoogleCampaign(campId, ownerA); assert(false, 'KS7'); } catch(e: any) {  assert(e.message.includes('Missing explicit deployment confirmation'), 'KS7. unconfirmed blocked'); }
+  process.env.GOOGLE_ADS_DEPLOYMENT_CONFIRMATION = 'CONFIRMED';
+  
+  
+  console.log('\n--- STARTING PREFLIGHT VERIFICATION TESTS ---');
+  const { checkPreflightEnvironment } = require('../scripts/google_preflight');
+  
+  const backupEnv = { ...process.env };
+  const resetPreflightEnv = () => {
+    process.env = { ...backupEnv };
+    process.env.GOOGLE_ADS_EXECUTION_MODE = 'test';
+    process.env.GOOGLE_ADS_DEVELOPER_TOKEN = 'token';
+    process.env.GOOGLE_ADS_TEST_CUSTOMER_ID = '123-456-7890';
+    process.env.GOOGLE_ADS_TEST_MANAGER_ID = '123-456-7890';
+    process.env.GOOGLE_CLIENT_ID = 'client';
+    process.env.GOOGLE_CLIENT_SECRET = 'secret';
+    process.env.ENCRYPTION_KEY = 'key';
+    process.env.SUPABASE_URL = 'url';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'key';
+  };
+
+  resetPreflightEnv();
+  process.env.GOOGLE_ADS_EXECUTION_MODE = 'production';
+  try { await checkPreflightEnvironment(); assert(false, 'Mode production blocked'); } catch (e: any) { assert(e.message.includes('GOOGLE_ADS_EXECUTION_MODE must be "test"'), 'Mode production blocked'); }
+
+  resetPreflightEnv();
+  delete process.env.GOOGLE_CLIENT_ID;
+  try { await checkPreflightEnvironment(); assert(false, 'Missing credentials blocked'); } catch (e: any) { assert(e.message.includes('Missing GOOGLE_CLIENT_ID'), 'Missing credentials blocked'); }
+
+  resetPreflightEnv();
+  process.env.GOOGLE_ADS_TEST_CUSTOMER_ID = 'invalid';
+  try { await checkPreflightEnvironment(); assert(false, 'Invalid customer ID blocked'); } catch (e: any) { assert(e.message.includes('syntactically invalid'), 'Invalid customer ID blocked'); }
+
+  resetPreflightEnv();
+  try { await checkPreflightEnvironment(); assert(true, 'Correct environment passes'); } catch (e: any) { assert(false, 'Correct environment passes'); }
 
   if (failCount > 0) process.exit(1);
 
