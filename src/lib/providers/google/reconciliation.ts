@@ -1,3 +1,4 @@
+import { createClient as createServerClient } from '../../supabase/server';
 import { createServiceClient } from '../../supabase/service';
 import { GoogleAdsApi } from 'google-ads-api';
 import { decryptCredential } from '../../crypto';
@@ -10,6 +11,10 @@ export let __MockGoogleAdsApi: any = null;
 export function __setMockGoogleAdsApi(mock: any) { __MockGoogleAdsApi = mock; }
 
 export async function reconcileGoogleDeployment(campaignId: string, ownerId: string) {
+  const serverClient = await createServerClient();
+  const { data: authData, error: authError } = await serverClient.auth.getUser();
+  if (authError || !authData?.user) throw new GoogleProviderError(ERROR_CODES.INTERNAL_ERROR, 'Failed to reconcile', { originalError: 'Unauthorized: Anonymous access denied' });
+  if (authData.user.id !== ownerId) throw new GoogleProviderError(ERROR_CODES.INTERNAL_ERROR, 'Failed to reconcile', { originalError: 'Unauthorized: Resource owner mismatch' });
   const supabase = await createServiceClient();
 
   const { data: deployment, error: depError } = await supabase
@@ -183,7 +188,7 @@ export async function reconcileGoogleDeployment(campaignId: string, ownerId: str
     // 5. KEYWORDS
     if (externalState.adGroupResourceName) {
       const kwRes = await customer.query(`
-        SELECT ad_group_criterion.keyword.text, ad_group_criterion.keyword.match_type, customer.id
+        SELECT ad_group_criterion.keyword.text, ad_group_criterion.keyword.match_type, customer.id, ad_group.resource_name, customer.id
         FROM ad_group_criterion 
         WHERE ad_group.resource_name = '${externalState.adGroupResourceName}' AND ad_group_criterion.type = 'KEYWORD'
       `);

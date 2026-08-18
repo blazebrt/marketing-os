@@ -66,8 +66,7 @@ export async function verifyTestAccount(
     }
     throw new GoogleProviderError(
       ERROR_CODES.TEST_ACCOUNT_REQUIRED,
-      'Failed to verify test account status.',
-      { originalError: err.message }
+      'Failed to verify test account status.'
     );
   }
 }
