@@ -89,7 +89,7 @@ export async function GET(req: NextRequest) {
   } catch (err: any) {
     // HARDENED ERROR RESPONSE
     // We log the detailed error internally, but output a safe generic URL error
-    await logAudit(user.id, 'OAUTH_FAILED', 'integration', null, null, null, `Internal error: ${err.message}`);
+    await logAudit(user.id, 'OAUTH_FAILED', 'integration', null, null, null, 'OAUTH_INTERNAL_ERROR');
     return NextResponse.redirect(new URL('/integrations?error=oauth_failed', req.url));
   }
 }
