@@ -15,7 +15,7 @@ Module.prototype.require = function (id) {
 };
 
 import { verifyGoogleConnection } from '../src/lib/integrations';
-import { OAuth2Client } from 'google-auth-library';
+import { OAuth2Client, gaxios } from 'google-auth-library';
 import { createClient } from '@supabase/supabase-js';
 import { createOAuthState, consumeOAuthState } from '../src/lib/oauthState';
 import { __setMockLogAudit } from '../src/lib/audit';
@@ -44,6 +44,7 @@ async function runTests() {
   const originalGetTokenInfo = OAuth2Client.prototype.getTokenInfo;
   const originalRequest = OAuth2Client.prototype.request;
   const originalGetToken = OAuth2Client.prototype.getToken;
+  const originalGaxiosRequest = gaxios.Gaxios.prototype.request;
 
   try {
     // A. OAuth token without email does NOT fail merely because email is absent.
@@ -80,18 +81,39 @@ async function runTests() {
     const consumed2nd = await consumeOAuthState(mockOwner, 'google', stateId);
     assert(consumed1st === true && consumed2nd === false, 'F. Existing OAuth CSRF/state protections still pass (atomic consumption)');
 
-    // G. No Google Ads mutation API is invokeked.
-    let mutationAttempted = false;
-    OAuth2Client.prototype.request = async (opts: any) => {
-      if (opts.url && opts.url.includes('tokeninfo')) return { data: { aud: 'client-id', exp: 9999999999 } } as any;
-      if (opts.method && opts.method.toUpperCase() !== 'GET') mutationAttempted = true;
-      if (opts.url && opts.url.includes('googleads.googleapis.com')) mutationAttempted = true;
+    // G. Real tokeninfo request is actually made, and no Google Ads mutation API is invoked.
+    OAuth2Client.prototype.getTokenInfo = originalGetTokenInfo; // Restore real getTokenInfo to execute its actual implementation
+
+    let tokenInfoRequestObserved: boolean = false;
+    let correctMethod: boolean = false;
+    let mutationAttempted: boolean = false;
+    let unexpectedEndpoint: boolean = false;
+    
+    gaxios.Gaxios.prototype.request = async (opts: any) => {
+      const url = opts.url || '';
+      const method = (opts.method || 'GET').toUpperCase();
+
+      if (url.includes('oauth2.googleapis.com/tokeninfo') || url.includes('oauth2/v3/tokeninfo')) {
+        tokenInfoRequestObserved = true;
+        if (method === 'POST') correctMethod = true; // getTokenInfo uses POST
+        return { data: { aud: 'client-id', exp: 9999999999, scope: 'adwords', expires_in: 3600 } } as any;
+      }
+      
+      if (url.includes('googleads.googleapis.com')) {
+        mutationAttempted = true;
+      } else {
+        unexpectedEndpoint = true;
+      }
+      
       return { data: {} } as any;
     };
     
     await verifyGoogleConnection({ access_token: 'valid-token' });
     
-    assert(mutationAttempted === false, 'G. No Google Ads mutation API is invoked (verifyGoogleConnection only uses tokeninfo)');
+    assert(tokenInfoRequestObserved === true, 'G. Real tokeninfo request observed');
+    assert(correctMethod === true, 'G. HTTP method verified POST (google-auth-library getTokenInfo uses POST)');
+    assert((mutationAttempted as boolean) === false, 'G. Google Ads mutation endpoints blocked');
+    assert((unexpectedEndpoint as boolean) === false, 'G. Unexpected endpoints blocked');
     
     // H. Secret Injection Test
     const stateId2 = await createOAuthState(mockOwner, 'google');
@@ -127,6 +149,7 @@ async function runTests() {
     OAuth2Client.prototype.getTokenInfo = originalGetTokenInfo;
     OAuth2Client.prototype.request = originalRequest;
     OAuth2Client.prototype.getToken = originalGetToken;
+    gaxios.Gaxios.prototype.request = originalGaxiosRequest;
     __setMockLogAudit(null);
     __setMockCreateClient(null);
   }
