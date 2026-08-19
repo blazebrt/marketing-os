@@ -84,10 +84,10 @@ async function runTests() {
     // G. Real tokeninfo request is actually made, and no Google Ads mutation API is invoked.
     OAuth2Client.prototype.getTokenInfo = originalGetTokenInfo; // Restore real getTokenInfo to execute its actual implementation
 
-    let tokenInfoRequestObserved: boolean = false;
-    let correctMethod: boolean = false;
-    let mutationAttempted: boolean = false;
-    let unexpectedEndpoint: boolean = false;
+    let tokenInfoRequestObserved: any = false;
+    let correctMethod: any = false;
+    let mutationAttempted: any = false;
+    let unexpectedEndpoint: any = false;
     
     gaxios.Gaxios.prototype.request = async (opts: any) => {
       const url = opts.url || '';
