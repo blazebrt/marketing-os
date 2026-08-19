@@ -43,6 +43,9 @@ export default async function IntegrationsPage() {
                 {p.testAccounts && <p className="text-xs text-blue-500 mt-1">V1 Bound to: {p.testAccounts}</p>}
                 
                 {meta.external_id && <p className="text-sm font-medium mt-2 text-green-700">Account: {meta.external_id}</p>}
+                {!meta.external_id && status === 'connected' && p.id === 'google' && (
+                  <p className="text-sm font-medium mt-2 text-yellow-600">Google OAuth connected — Ads account verification pending</p>
+                )}
                 {meta.error_message && <p className="text-sm font-medium mt-2 text-red-600">Error: {meta.error_message}</p>}
               </div>
               <div className="flex items-center gap-4">

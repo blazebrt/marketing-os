@@ -11,15 +11,14 @@ export async function verifyGoogleConnection(tokens: { access_token: string, ref
     const client = new OAuth2Client();
     client.setCredentials(tokens);
 
-    const tokenInfo = await client.getTokenInfo(tokens.access_token);
+    // Verify token validity. Throws if invalid/expired.
+    await client.getTokenInfo(tokens.access_token);
     
-    if (!tokenInfo.email) {
-       return { safe: false, reason: 'No email associated with token' };
-    }
-
-    return { safe: true, accountId: tokenInfo.email }; // Using email as external_id for V1 test bounds
+    // We do not require tokenInfo.email. Google Ads uses Manager/Customer IDs.
+    // Return safe: true without accountId. The identity will be resolved later.
+    return { safe: true }; 
   } catch (e: any) {
-    return { safe: false, reason: e.message };
+    return { safe: false, reason: 'Invalid or expired OAuth token' };
   }
 }
 
