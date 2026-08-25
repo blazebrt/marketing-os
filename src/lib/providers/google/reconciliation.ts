@@ -111,7 +111,8 @@ export async function reconcileGoogleDeployment(campaignId: string, ownerId: str
         const custId = cRes[0].customer?.id?.toString();
         if (custId !== verifiedCustomerNum) { status = 'DRIFT'; differences.push('Campaign does not belong to verified customer'); }
         if (cb.resource_name !== externalState.campaignBudgetResourceName) { status = 'DRIFT'; differences.push('Campaign does not use expected budget'); }
-        if (c.bidding_strategy_type !== targetState.bidding.strategy) { status = 'DRIFT'; differences.push('Bidding strategy mismatch'); }
+        const bstString = c.bidding_strategy_type === 3 ? 'MANUAL_CPC' : c.bidding_strategy_type === 10 ? 'MAXIMIZE_CONVERSIONS' : c.bidding_strategy_type;
+        if (bstString !== targetState.bidding.strategy) { status = 'DRIFT'; differences.push('Bidding strategy mismatch'); }
       }
     }
 
@@ -195,7 +196,7 @@ export async function reconcileGoogleDeployment(campaignId: string, ownerId: str
       
       const actualKeywords = kwRes.map((r: any) => ({
         text: r.ad_group_criterion.keyword.text.trim().toLowerCase(),
-        match_type: r.ad_group_criterion.keyword.match_type
+        match_type: r.ad_group_criterion.keyword.match_type === 2 ? 'EXACT' : r.ad_group_criterion.keyword.match_type === 3 ? 'PHRASE' : r.ad_group_criterion.keyword.match_type === 4 ? 'BROAD' : r.ad_group_criterion.keyword.match_type
       })).sort((a: any, b: any) => a.text.localeCompare(b.text));
 
       for (const r of kwRes) {

@@ -57,7 +57,8 @@ export class GoogleAdsMutationClient {
           },
         },
       ]);
-      return response[0].mutated_resource_name;
+      console.log("BUDGET RESPONSE:", JSON.stringify(response, null, 2));
+      return (response[0] && response[0].mutated_resource_name) || (response.results && response.results[0] && response.results[0].resource_name) || (response.mutate_operation_responses && response.mutate_operation_responses[0] && (response.mutate_operation_responses[0].campaign_budget_result || response.mutate_operation_responses[0].campaign_result || response.mutate_operation_responses[0].ad_group_result || response.mutate_operation_responses[0].ad_group_ad_result || response.mutate_operation_responses[0].ad_group_criterion_result).resource_name) || undefined;
     } catch (err: any) {
       throw this.mapError(err, 'createCampaignBudget');
     }
@@ -67,10 +68,11 @@ export class GoogleAdsMutationClient {
     try {
       const resource: any = {
         name,
-        status: 'PAUSED',
-        advertising_channel_type: 'SEARCH',
-        campaign_budget: budgetResourceName,
-        network_settings: {
+          status: 'PAUSED',
+          advertising_channel_type: 'SEARCH',
+          campaign_budget: budgetResourceName,
+          contains_eu_political_advertising: 'DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING',
+          network_settings: {
           target_google_search: true,
           target_search_network: false,
           target_content_network: false,
@@ -93,8 +95,9 @@ export class GoogleAdsMutationClient {
           resource,
         },
       ]);
-      return response[0].mutated_resource_name;
+      return (response[0] && response[0].mutated_resource_name) || (response.results && response.results[0] && response.results[0].resource_name) || (response.mutate_operation_responses && response.mutate_operation_responses[0] && (response.mutate_operation_responses[0].campaign_budget_result || response.mutate_operation_responses[0].campaign_result || response.mutate_operation_responses[0].ad_group_result || response.mutate_operation_responses[0].ad_group_ad_result || response.mutate_operation_responses[0].ad_group_criterion_result).resource_name) || undefined;
     } catch (err: any) {
+      console.error("CAMPAIGN CREATION ERROR:", JSON.stringify(err, null, 2), err);
       throw this.mapError(err, 'createCampaign');
     }
   }
@@ -114,7 +117,7 @@ export class GoogleAdsMutationClient {
           },
         },
       ]);
-      return response[0].mutated_resource_name;
+      return (response[0] && response[0].mutated_resource_name) || (response.results && response.results[0] && response.results[0].resource_name) || (response.mutate_operation_responses && response.mutate_operation_responses[0] && (response.mutate_operation_responses[0].campaign_budget_result || response.mutate_operation_responses[0].campaign_result || response.mutate_operation_responses[0].ad_group_result || response.mutate_operation_responses[0].ad_group_ad_result || response.mutate_operation_responses[0].ad_group_criterion_result).resource_name) || undefined;
     } catch (err: any) {
       throw this.mapError(err, 'createAdGroup');
     }
@@ -144,7 +147,7 @@ export class GoogleAdsMutationClient {
           },
         },
       ]);
-      return response[0].mutated_resource_name;
+      return (response[0] && response[0].mutated_resource_name) || (response.results && response.results[0] && response.results[0].resource_name) || (response.mutate_operation_responses && response.mutate_operation_responses[0] && (response.mutate_operation_responses[0].campaign_budget_result || response.mutate_operation_responses[0].campaign_result || response.mutate_operation_responses[0].ad_group_result || response.mutate_operation_responses[0].ad_group_ad_result || response.mutate_operation_responses[0].ad_group_criterion_result).resource_name) || undefined;
     } catch (err: any) {
       throw this.mapError(err, 'createResponsiveSearchAd');
     }
@@ -166,7 +169,7 @@ export class GoogleAdsMutationClient {
           },
         },
       ]);
-      return response[0].mutated_resource_name;
+      return (response[0] && response[0].mutated_resource_name) || (response.results && response.results[0] && response.results[0].resource_name) || (response.mutate_operation_responses && response.mutate_operation_responses[0] && (response.mutate_operation_responses[0].campaign_budget_result || response.mutate_operation_responses[0].campaign_result || response.mutate_operation_responses[0].ad_group_result || response.mutate_operation_responses[0].ad_group_ad_result || response.mutate_operation_responses[0].ad_group_criterion_result).resource_name) || undefined;
     } catch (err: any) {
       throw this.mapError(err, 'createKeyword');
     }
