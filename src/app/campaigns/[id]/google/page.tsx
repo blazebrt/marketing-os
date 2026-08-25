@@ -3,7 +3,6 @@ import { redirect } from 'next/navigation';
 import { GoogleCreativeItem } from '@/lib/providers/google/types';
 import { Bot } from 'lucide-react';
 import { CreativeItemRow } from './CreativeItemRow';
-import { prepareGoogleDeployment } from '@/lib/providers/google/adapter';
 import { GoogleAdsReadOnlyContextProvider } from '@/lib/providers/google/real-context';
 import { DeploymentPanel } from './DeploymentPanel';
 
@@ -67,7 +66,7 @@ export default async function GoogleReviewPage(props: { params: Promise<{ id: st
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Google Campaign Review</h1>
         <p className="text-muted-foreground mt-2">
-          Review and approve AI-generated marketing content before deployment.
+          Review AI-generated copy. Approved creatives are not live on Google Ads until deployment reconciles as MATCH.
         </p>
       </div>
 
@@ -78,7 +77,7 @@ export default async function GoogleReviewPage(props: { params: Promise<{ id: st
         </div>
         {targetStateError ? (
           <div className="text-red-600 bg-red-50 p-4 rounded border border-red-200">
-            <strong>Error retrieving Google Account Context:</strong> {targetStateError}
+            <strong>Error retrieving Google Account Context:</strong> GOOGLE_CONTEXT_UNAVAILABLE
           </div>
         ) : strategyContext ? (
           <div className="space-y-2 text-sm">
@@ -95,17 +94,17 @@ export default async function GoogleReviewPage(props: { params: Promise<{ id: st
         <CreativeSection title="Keywords" items={keywords} campaignId={campaign.id} creativeId={campaign.creative_id} itemType="keywords" />
       </div>
 
-      {campaign.status !== 'READY_TO_DEPLOY' && !deploymentState?.status && (
+      {campaign.status !== 'READY_TO_DEPLOY' && (
         <div className="bg-yellow-50 text-yellow-800 p-4 rounded-md border border-yellow-200">
-          Campaign must be approved before final deployment prep can occur. Current status: {campaign.status}
+          Campaign is not ready to deploy. Current campaign status: {campaign.status}. Deployment is shown only after approval snapshots target_state.
         </div>
       )}
 
-      {(campaign.status === 'READY_TO_DEPLOY' || deploymentState) && (
-        <DeploymentPanel 
-          campaignId={campaign.id} 
-          status={campaign.status} 
-          deploymentState={deploymentState} 
+      {campaign.status === 'READY_TO_DEPLOY' && deploymentState?.status === 'READY_TO_DEPLOY' && deploymentState?.target_state?.headlines && (
+        <DeploymentPanel
+          campaignId={campaign.id}
+          status={campaign.status}
+          deploymentState={deploymentState}
         />
       )}
     </div>
