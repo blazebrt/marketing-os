@@ -56,15 +56,39 @@ export async function verifyCampaign(campaignId: string) {
     checks.push({ name: 'Creative', pass: false, message: 'No creative attached' });
   } else {
     const { data: cr } = await supabase.from('creatives').select('id').eq('id', campaign.creative_id).eq('owner_id', user.id).single();
-    if (cr) {
-      checks.push({ name: 'Creative', pass: true, message: 'Creative record verified' });
-    } else {
+    if (!cr) {
       checks.push({ name: 'Creative', pass: false, message: 'Creative record not found or inaccessible' });
+    } else {
+      const { data: cg } = await supabase.from('creatives_google').select('*').eq('creative_id', campaign.creative_id).single();
+      if (!cg) {
+        checks.push({ name: 'Creative Content', pass: false, message: 'Google creative content missing' });
+      } else {
+        const approvedHeadlines = (cg.headlines || []).filter((h: any) => h.owner_approved);
+        const approvedDescriptions = (cg.descriptions || []).filter((d: any) => d.owner_approved);
+        const approvedKeywords = (cg.keywords || []).filter((k: any) => k.owner_approved);
+        
+        const errors = [];
+        if (approvedHeadlines.length < 3) errors.push(`Need 3 approved headlines (have ${approvedHeadlines.length})`);
+        if (approvedDescriptions.length < 2) errors.push(`Need 2 approved descriptions (have ${approvedDescriptions.length})`);
+        if (approvedKeywords.length < 1) errors.push(`Need 1 approved keyword (have ${approvedKeywords.length})`);
+
+        if (errors.length === 0) {
+          checks.push({ name: 'Creative', pass: true, message: 'All required creative components are approved' });
+        } else {
+          checks.push({ name: 'Creative', pass: false, message: errors.join(', ') });
+        }
+      }
     }
   }
 
   if (campaign.destination) {
-    checks.push({ name: 'Destination', pass: true, message: 'Destination configured' });
+    const { validateDestinationUrl } = await import('@/lib/urlValidator');
+    const urlCheck = await validateDestinationUrl(campaign.destination);
+    if (urlCheck.valid) {
+      checks.push({ name: 'Destination', pass: true, message: 'Destination is a valid reachable URL' });
+    } else {
+      checks.push({ name: 'Destination', pass: false, message: urlCheck.error || 'Invalid destination URL' });
+    }
   } else {
     checks.push({ name: 'Destination', pass: false, message: 'Missing destination' });
   }

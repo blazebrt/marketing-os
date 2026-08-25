@@ -9,7 +9,7 @@ export async function updateGoogleCreativeItem(
   creativeId: string,
   itemType: 'keywords' | 'headlines' | 'descriptions',
   itemId: string,
-  action: 'approve' | 'reject' | 'edit',
+  action: 'approve' | 'reject' | 'edit' | 'regenerate',
   newValue?: string
 ) {
   const supabase = await createClient();
@@ -54,8 +54,23 @@ export async function updateGoogleCreativeItem(
   } else if (action === 'reject') {
     item.owner_approved = false;
     item.rejected = true;
+  } else if (action === 'regenerate') {
+    item.current_value = item.current_value + ' (Regenerated)'; // Dummy regen for now
+    item.owner_approved = false;
+    item.rejected = false;
   } else if (action === 'edit') {
     if (!newValue || newValue.trim() === '') throw new Error('Cannot be empty');
+    const { validateHeadline, validateDescription, validateKeyword } = await import('@/lib/providers/google/validation');
+    const tempItem: GoogleCreativeItem = { ...item, current_value: newValue };
+    let errors: string[] = [];
+    if (itemType === 'headlines') errors = validateHeadline(tempItem);
+    else if (itemType === 'descriptions') errors = validateDescription(tempItem);
+    else if (itemType === 'keywords') errors = validateKeyword(tempItem);
+
+    if (errors.length > 0) {
+      throw new Error('Validation failed: ' + errors.join(', '));
+    }
+
     item.current_value = newValue;
     item.owner_approved = true; // Implicitly approved by editing
     item.rejected = false;

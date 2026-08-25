@@ -76,8 +76,29 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
               </form>
             )
           ) : (
-            <div className="p-4 bg-red-50 text-red-700 rounded border border-red-100">
-              Please fix the issues above before this campaign can progress.
+            <div className="flex flex-col gap-4">
+              <div className="p-4 bg-red-50 text-red-700 rounded border border-red-100">
+                Please fix the issues above before this campaign can progress.
+              </div>
+              {!campaign.creative_id && (
+                <form action={async () => {
+                  'use server';
+                  const { redirect } = await import('next/navigation');
+                  const { generateAndSaveGoogleCreatives } = await import('@/lib/providers/google/generative');
+                  await generateAndSaveGoogleCreatives(id, campaign.owner_id);
+                  redirect(`/campaigns/${id}/google`);
+                }}>
+                  <button className="bg-blue-600 text-white px-6 py-3 rounded-lg font-medium flex items-center justify-center gap-2">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                    Generate AI Creatives
+                  </button>
+                </form>
+              )}
+              {campaign.creative_id && (
+                 <a href={`/campaigns/${id}/google`} className="inline-block text-center bg-blue-100 text-blue-700 px-6 py-3 rounded-lg font-medium border border-blue-200 hover:bg-blue-200">
+                   Review Google Creatives
+                 </a>
+              )}
             </div>
           )}
         </div>

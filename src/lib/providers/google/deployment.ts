@@ -231,7 +231,7 @@ export async function deployGoogleCampaign(campaignId: string, ownerId: string):
         .update({ status: 'FAILED', reconciliation_status: reconciliationResult.status })
         .eq('id', deployment.id);
 
-      throw new Error(`Deployment reconciliation failed with result: ${reconciliationResult.status}. Differences: ${JSON.stringify(reconciliationResult.differences)} | ${JSON.stringify(reconciliationResult.debugData)}`);
+      throw new Error(`Deployment reconciliation failed with result: ${reconciliationResult.status}. Differences: ${JSON.stringify(reconciliationResult.differences)}`);
     }
 
   } catch (err: any) {
