@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { decryptCredential } from '../src/lib/crypto';
 import { verifyTestAccount } from '../src/lib/providers/google/test-account';
 
-config();
+config({ path: '.env.local' });
 
 export async function checkPreflightEnvironment() {
   if (process.env.GOOGLE_ADS_EXECUTION_MODE !== 'test') {
@@ -18,7 +18,7 @@ export async function checkPreflightEnvironment() {
     'GOOGLE_CLIENT_ID',
     'GOOGLE_CLIENT_SECRET',
     'ENCRYPTION_KEY',
-    'SUPABASE_URL',
+    'NEXT_PUBLIC_SUPABASE_URL',
     'SUPABASE_SERVICE_ROLE_KEY'
   ];
 
@@ -37,7 +37,7 @@ export async function checkPreflightEnvironment() {
 export async function runPreflight() {
   await checkPreflightEnvironment();
 
-  const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
   
   const { data: creds, error } = await supabase
     .from('integration_credentials')

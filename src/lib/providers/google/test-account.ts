@@ -27,6 +27,9 @@ export async function verifyTestAccount(
   }
 
   try {
+    const cleanCustomerId = customerId.replace(/-/g, '');
+    const cleanManagerId = managerId.replace(/-/g, '');
+
     const ApiClass = __MockGoogleAdsApi || GoogleAdsApi;
     const client = new ApiClass({
       client_id: clientId,
@@ -35,15 +38,15 @@ export async function verifyTestAccount(
     });
 
     const customer = client.Customer({
-      customer_id: customerId,
+      customer_id: cleanCustomerId,
       refresh_token: refreshToken,
-      login_customer_id: managerId,
+      login_customer_id: cleanManagerId,
     });
 
     const response = await customer.query(
       `SELECT customer.id, customer.test_account, customer.descriptive_name 
        FROM customer 
-       WHERE customer.id = ${customerId.replace(/-/g, '')} 
+       WHERE customer.id = ${cleanCustomerId} 
        LIMIT 1`
     );
 
