@@ -1,3 +1,6 @@
+import * as dotenv from 'dotenv';
+dotenv.config({ path: '.env.local' });
+import './setup';
 import { PGlite } from '@electric-sql/pglite';
 import crypto from 'crypto';
 import { GoogleAdsReadOnlyContextProvider } from '../src/lib/providers/google/real-context';

@@ -1,3 +1,6 @@
+import * as dotenv from 'dotenv';
+dotenv.config({ path: '.env.local' });
+import './setup';
 import { evaluateBiddingStrategy } from '../src/lib/providers/google/strategy';
 import { StrategyContext } from '../src/lib/providers/google/types';
 

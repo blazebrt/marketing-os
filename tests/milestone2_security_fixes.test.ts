@@ -1,3 +1,6 @@
+import * as dotenv from 'dotenv';
+dotenv.config({ path: '.env.local' });
+import './setup';
 import { encryptCredential, decryptCredential } from '../src/lib/crypto';
 import crypto from 'crypto';
 

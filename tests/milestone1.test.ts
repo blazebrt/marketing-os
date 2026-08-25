@@ -1,3 +1,6 @@
+import * as dotenv from 'dotenv';
+dotenv.config({ path: '.env.local' });
+import './setup';
 
 
 async function runMilestone1Tests() {

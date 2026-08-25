@@ -1,3 +1,6 @@
+import './setup';
+import * as dotenv from 'dotenv';
+dotenv.config({ path: '.env.local' });
 import { encryptCredential, decryptCredential } from '../src/lib/crypto';
 import { verifyGoogleConnection } from '../src/lib/integrations';
 import { withIdempotency } from '../src/lib/idempotency';

@@ -1,4 +1,8 @@
 
+import './setup';
+import * as dotenv from 'dotenv';
+dotenv.config({ path: '.env.local' });
+
 (global as any).mockCookieState = 'test-state';
 import Module from 'module';
 const originalRequire = Module.prototype.require;
@@ -20,13 +24,78 @@ import { createClient } from '@supabase/supabase-js';
 import { createOAuthState, consumeOAuthState } from '../src/lib/oauthState';
 import { __setMockLogAudit } from '../src/lib/audit';
 import { __setMockCreateClient } from '../src/lib/supabase/server';
-
+import { __setMockServiceClient } from '../src/lib/supabase/service';
 import { NextRequest } from 'next/server';
 
 let GET: any;
 
 async function runTests() {
   GET = require('../src/app/api/integrations/google/callback/route').GET;
+
+  const mockDb: any = { oauth_states: [], audit_logs: [] };
+  const mockServiceClient = {
+    from: (tableName: string) => {
+      const chain: any = {
+        insert: (payload: any) => {
+          const inserted = { ...payload, id: 'mock-id' };
+          mockDb[tableName].push(inserted);
+          const chain = {
+            select: () => {
+              const chain2 = {
+                single: () => ({ data: inserted, error: null })
+              };
+              return chain2;
+            }
+          };
+          return chain;
+        },
+        update: (payload: any) => {
+          return {
+            eq: (k1: string, v1: string) => {
+              const chain2 = {
+                eq: (k2: string, v2: string) => {
+                  const chain3 = {
+                    eq: (k3: string, v3: string) => {
+                      const chain4: any = {
+                        is: (k4: string, v4: any) => {
+                          const chain5: any = {
+                            gt: (k5: string, v5: string) => {
+                              const chain6: any = {
+                                select: () => {
+                                  const chain7: any = {
+                                    single: () => {
+                                      const found = mockDb[tableName].find((r:any) => r[k1]===v1 && r[k2]===v2 && r[k3]===v3 && (r[k4]===v4 || (r[k4]===undefined && v4===null)) && r[k5]>v5);
+                                      if (found) { Object.assign(found, payload); return { data: found, error: null }; }
+                                      return { data: null, error: new Error('not found') };
+                                    },
+                                    then: (cb: any) => cb({ data: null, error: null })
+                                  };
+                                  return chain7;
+                                }
+                              };
+                              return chain6;
+                            },
+                            then: (cb: any) => cb({ data: null, error: null })
+                          };
+                          return chain5;
+                        }
+                      };
+                      return chain4;
+                    }
+                  };
+                  return chain3;
+                }
+              };
+              return chain2;
+            }
+          };
+        }
+      };
+      return chain;
+    }
+  };
+  __setMockServiceClient(() => mockServiceClient);
+
   console.log('--- STARTING OAUTH IDENTITY TESTS ---');
   let passCount = 0;
   let failCount = 0;
@@ -66,7 +135,11 @@ async function runTests() {
     assert(resultInvalid.reason === 'Invalid or expired OAuth token', 'D. No OAuth secret/token appears in errors or audit logs');
 
     // E. Unauthorized users cannot create/update the integration.
-    const anonClient = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL || 'http://127.0.0.1:54321', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'yes');
+    const anonClient = {
+      from: (table: string) => ({
+        upsert: async (payload: any) => ({ data: null, error: { code: '42501', message: 'new row violates row-level security policy' } })
+      })
+    };
     const { error: anonError } = await anonClient.from('integrations').upsert({
       owner_id: '00000000-0000-0000-0000-000000000000',
       provider: 'google',
@@ -150,8 +223,9 @@ async function runTests() {
     OAuth2Client.prototype.request = originalRequest;
     OAuth2Client.prototype.getToken = originalGetToken;
     gaxios.Gaxios.prototype.request = originalGaxiosRequest;
-    __setMockLogAudit(null);
     __setMockCreateClient(null);
+    __setMockServiceClient(null);
+    __setMockLogAudit(null);
   }
 
   console.log('\n--- TESTS COMPLETE: ' + passCount + ' PASS, ' + failCount + ' FAIL ---');

@@ -1,3 +1,6 @@
+import * as dotenv from 'dotenv';
+dotenv.config({ path: '.env.local' });
+import './setup';
 // tests/milestone6_preflight.test.ts
 import { authorizeGoogleTestMutation } from '../src/lib/providers/google/mutation-gate';
 import { checkPreflightEnvironment } from '../scripts/google_preflight';

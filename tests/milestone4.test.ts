@@ -1,3 +1,6 @@
+import * as dotenv from 'dotenv';
+dotenv.config({ path: '.env.local' });
+import './setup';
 import { PGlite } from '@electric-sql/pglite';
 import { calculateSafetyLimits } from '../src/lib/campaigns/safeguards';
 import { CampaignIntentSchema } from '../src/lib/schemas/campaigns';

@@ -1,3 +1,6 @@
+import * as dotenv from 'dotenv';
+dotenv.config({ path: '.env.local' });
+import './setup';
 // @ts-nocheck
 import { PGlite } from '@electric-sql/pglite';
 import fs from 'fs';
