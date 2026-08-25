@@ -42,7 +42,7 @@ export async function upsertIntegration(
     error_message: errorMessage,
     last_verified_at: new Date().toISOString(),
     updated_at: new Date().toISOString()
-  });
+  }, { onConflict: 'owner_id,provider' });
 
   if (metaError) throw metaError;
 
@@ -57,7 +57,7 @@ export async function upsertIntegration(
       provider,
       encrypted_credentials: JSON.stringify(safeCreds),
       updated_at: new Date().toISOString()
-    });
+    }, { onConflict: 'owner_id,provider' });
 
     if (credError) throw credError;
   }
