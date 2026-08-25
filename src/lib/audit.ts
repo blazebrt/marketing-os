@@ -17,6 +17,7 @@ export async function logAudit(
   const supabase = await createClient();
   
   const { error } = await supabase.from('audit_logs').insert({
+    owner_id: actor,
     actor,
     action,
     entity_type: entityType,
