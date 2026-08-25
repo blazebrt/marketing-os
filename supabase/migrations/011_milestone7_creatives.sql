@@ -201,6 +201,7 @@ declare
     v_target jsonb;
     v_dest_type text;
     v_landing text;
+    v_google_requested boolean := false;
 begin
     v_uid := auth.uid();
 
@@ -264,6 +265,16 @@ begin
         raise exception 'Tampered max_auto_budget_increase';
     end if;
 
+    if array_length(v_campaign.channels, 1) is null or array_length(v_campaign.channels, 1) = 0 then
+        raise exception 'No channels selected';
+    end if;
+
+    -- Authoritative channel set is the locked campaign row, never a client-supplied list.
+    select array_agg(lower(c) order by lower(c)) into v_requested_providers
+    from unnest(v_campaign.channels) as c;
+
+    v_google_requested := 'google' = any(v_requested_providers);
+
     if v_campaign.creative_id is null then
         raise exception 'Creative must be assigned';
     end if;
@@ -281,48 +292,43 @@ begin
         raise exception 'Creative does not belong to campaign';
     end if;
 
-    select * into v_google
-    from public.creatives_google
-    where creative_id = v_creative.id and owner_id = v_owner_id
-    for update;
-
-    if not found then
-        raise exception 'Google creative content missing';
-    end if;
-
-    if not public.m7_json_items_ready(v_google.headlines, 3, 15, 30) then
-        raise exception 'Invalid or unapproved headlines';
-    end if;
-    if not public.m7_json_items_ready(v_google.descriptions, 2, 4, 90) then
-        raise exception 'Invalid or unapproved descriptions';
-    end if;
-    if not public.m7_json_items_ready(v_google.keywords, 1, 20, 80) then
-        raise exception 'Invalid or unapproved keywords';
-    end if;
-
     v_dest_type := coalesce(v_campaign.destination_type, 'WEBSITE');
     v_landing := coalesce(nullif(v_campaign.landing_url, ''), v_campaign.destination);
 
-    if array_length(v_campaign.channels, 1) is null or array_length(v_campaign.channels, 1) = 0 then
-        raise exception 'No channels selected';
-    end if;
+    if v_google_requested then
+        select * into v_google
+        from public.creatives_google
+        where creative_id = v_creative.id and owner_id = v_owner_id
+        for update;
 
-    select array_agg(lower(c) order by lower(c)) into v_requested_providers
-    from unnest(v_campaign.channels) as c;
+        if not found then
+            raise exception 'Google creative content missing';
+        end if;
 
-    if 'google' = any(v_requested_providers) and v_dest_type is distinct from 'WEBSITE' then
-        raise exception 'GOOGLE_DESTINATION_UNSUPPORTED';
-    end if;
+        if not public.m7_json_items_ready(v_google.headlines, 3, 15, 30) then
+            raise exception 'Invalid or unapproved headlines';
+        end if;
+        if not public.m7_json_items_ready(v_google.descriptions, 2, 4, 90) then
+            raise exception 'Invalid or unapproved descriptions';
+        end if;
+        if not public.m7_json_items_ready(v_google.keywords, 1, 20, 80) then
+            raise exception 'Invalid or unapproved keywords';
+        end if;
 
-    if 'google' = any(v_requested_providers) then
+        if v_dest_type is distinct from 'WEBSITE' then
+            raise exception 'GOOGLE_DESTINATION_UNSUPPORTED';
+        end if;
+
         if v_landing is null or v_landing not like 'https://%' then
             raise exception 'Destination must be a verified HTTPS landing URL';
         end if;
         if v_campaign.destination_verification_status is distinct from 'VALID' then
             raise exception 'Destination verification valid required';
         end if;
-    elsif coalesce(v_campaign.destination, '') = '' and v_landing is null then
-        raise exception 'Destination must be set';
+    else
+        if coalesce(v_campaign.destination, '') = '' and v_landing is null then
+            raise exception 'Destination must be set';
+        end if;
     end if;
 
     select count(*) into v_missing_integrations
@@ -352,31 +358,33 @@ begin
     set status = 'APPROVED'
     where id = v_creative.id;
 
-    v_target := jsonb_build_object(
-      'schemaVersion', 'v1',
-      'provider', 'google',
-      'campaign', jsonb_build_object(
-        'id', v_campaign.id,
-        'budget', v_campaign.budget_amount,
-        'duration', v_campaign.duration_days,
-        'destination', v_landing
-      ),
-      'bidding', jsonb_build_object(
-        'strategy', 'MANUAL_CPC',
-        'confidence', 1,
-        'reasons', jsonb_build_array('Approval snapshot uses conservative MANUAL_CPC'),
-        'safetyConstraints', jsonb_build_array('max_auto_budget_increase=0')
-      ),
-      'adGroup', jsonb_build_object('name', coalesce(v_campaign.service, 'Campaign') || ' - Google', 'type', 'SEARCH_STANDARD'),
-      'keywords', v_google.keywords,
-      'headlines', v_google.headlines,
-      'descriptions', v_google.descriptions,
-      'destination', jsonb_build_object('url', v_landing, 'tracking', 'utm_source=google&utm_medium=cpc'),
-      'generatedAt', to_jsonb(now())
-    );
+    if v_google_requested then
+      v_target := jsonb_build_object(
+        'schemaVersion', 'v1',
+        'provider', 'google',
+        'campaign', jsonb_build_object(
+          'id', v_campaign.id,
+          'budget', v_campaign.budget_amount,
+          'duration', v_campaign.duration_days,
+          'destination', v_landing
+        ),
+        'bidding', jsonb_build_object(
+          'strategy', 'MANUAL_CPC',
+          'confidence', 1,
+          'reasons', jsonb_build_array('Approval snapshot uses conservative MANUAL_CPC'),
+          'safetyConstraints', jsonb_build_array('max_auto_budget_increase=0')
+        ),
+        'adGroup', jsonb_build_object('name', coalesce(v_campaign.service, 'Campaign') || ' - Google', 'type', 'SEARCH_STANDARD'),
+        'keywords', v_google.keywords,
+        'headlines', v_google.headlines,
+        'descriptions', v_google.descriptions,
+        'destination', jsonb_build_object('url', v_landing, 'tracking', 'utm_source=google&utm_medium=cpc'),
+        'generatedAt', to_jsonb(now())
+      );
+    end if;
 
     foreach v_provider in array v_requested_providers loop
-        if v_provider = 'google' then
+        if v_google_requested and v_provider = 'google' then
           insert into public.channel_deployments (campaign_id, owner_id, provider, status, target_state)
           values (p_campaign_id, v_owner_id, v_provider, 'READY_TO_DEPLOY', v_target)
           on conflict (campaign_id, provider) do update
@@ -399,7 +407,7 @@ begin
         raise exception 'Exact deployment mapping mismatch';
     end if;
 
-    if 'google' = any(v_requested_providers) then
+    if v_google_requested then
       if not exists (
         select 1 from public.channel_deployments
         where campaign_id = p_campaign_id and provider = 'google'
