@@ -17,7 +17,8 @@ export default function NewCampaignWizard() {
     budget_amount: '',
     duration_days: '30',
     channels: [] as string[],
-    destination: ''
+    destination_type: '' as '' | 'WEBSITE' | 'WHATSAPP' | 'PHONE',
+    landing_url: ''
   });
 
   const update = (key: string, val: any) => setForm(prev => ({ ...prev, [key]: val }));
@@ -27,9 +28,14 @@ export default function NewCampaignWizard() {
       setLoading(true);
       setError('');
       const payload: any = {
-        ...form,
+        service: form.service,
+        offer: form.offer,
+        budget_type: form.budget_type,
         budget_amount: Number(form.budget_amount),
         duration_days: Number(form.duration_days),
+        channels: form.channels,
+        destination_type: form.destination_type,
+        landing_url: form.destination_type === 'WEBSITE' ? form.landing_url : null,
         creative_id: null
       };
 
@@ -146,14 +152,30 @@ export default function NewCampaignWizard() {
       {step === 5 && (
         <div className="animate-in fade-in slide-in-from-bottom-4">
           <h1 className="text-3xl font-bold mb-6">How should customers contact you?</h1>
+          <p className="text-sm text-gray-600 mb-4">Google Ads requires a website landing URL. WhatsApp and Phone campaigns cannot be deployed to Google Ads.</p>
           <div className="space-y-4">
-            {['Website', 'WhatsApp', 'Phone', 'Website + WhatsApp'].map(s => (
-              <button key={s} onClick={() => { update('destination', s); setStep(6); }} 
+            {([
+              ['WEBSITE', 'Website'],
+              ['WHATSAPP', 'WhatsApp'],
+              ['PHONE', 'Phone'],
+            ] as const).map(([type, label]) => (
+              <button key={type} onClick={() => { update('destination_type', type); setStep(type === 'WEBSITE' ? 5.5 : 6); }}
                       className="w-full text-left p-4 border rounded hover:border-black transition">
-                {s}
+                {label}
               </button>
             ))}
           </div>
+        </div>
+      )}
+
+      {step === 5.5 && (
+        <div className="animate-in fade-in slide-in-from-bottom-4">
+          <h1 className="text-3xl font-bold mb-6">Landing page URL</h1>
+          <p className="text-sm text-gray-600 mb-4">Must be a public HTTPS URL. Private, localhost, and cloud metadata addresses are rejected.</p>
+          <input type="url" value={form.landing_url} onChange={e => update('landing_url', e.target.value)}
+                 className="w-full border p-2 rounded" placeholder="https://www.example.com" />
+          <button onClick={() => form.landing_url.startsWith('https://') && setStep(6)}
+                  className="w-full bg-black text-white p-3 rounded mt-4">Next</button>
         </div>
       )}
 
@@ -178,9 +200,15 @@ export default function NewCampaignWizard() {
               <span className="font-medium">{form.channels.join(', ')}</span>
             </div>
             <div className="flex justify-between border-b pb-2">
-              <span className="text-gray-500">Destination</span>
-              <span className="font-medium">{form.destination}</span>
+              <span className="text-gray-500">Destination type</span>
+              <span className="font-medium">{form.destination_type}</span>
             </div>
+            {form.landing_url && (
+              <div className="flex justify-between border-b pb-2">
+                <span className="text-gray-500">Landing URL</span>
+                <span className="font-medium">{form.landing_url}</span>
+              </div>
+            )}
             <div className="flex justify-between">
               <span className="text-gray-500">Creative</span>
               <span className="font-medium text-red-600">No creative selected (Required before approval)</span>

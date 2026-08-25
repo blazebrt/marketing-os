@@ -24,7 +24,7 @@ export function DeploymentPanel({
     try {
       await deployToTestAccount(campaignId);
     } catch (err: any) {
-      setError(err.message || 'Deployment failed');
+      setError('APPROVAL_FAILED');
     } finally {
       setIsDeploying(false);
     }
@@ -37,17 +37,17 @@ export function DeploymentPanel({
       const result = await reconcileDeployment(campaignId);
       setReconciliationResult(result);
     } catch (err: any) {
-      setError(err.message || 'Reconciliation failed');
+      setError('APPROVAL_FAILED');
     } finally {
       setIsReconciling(false);
     }
   };
 
-  const isReady = status === 'READY_TO_DEPLOY';
   const depStatus = deploymentState?.status || 'PENDING';
+  const isReady = status === 'READY_TO_DEPLOY' && depStatus === 'READY_TO_DEPLOY' && Array.isArray(deploymentState?.target_state?.headlines);
   const externalState = deploymentState?.external_state || {};
-  
-  if (!isReady && depStatus === 'PENDING') {
+
+  if (!isReady && depStatus !== 'ACTIVE' && depStatus !== 'FAILED' && !['CREATING_CAMPAIGN', 'CREATING_AD_GROUP', 'CREATING_ADS', 'CREATING_KEYWORDS', 'VERIFYING', 'DEPLOYMENT_LOCKED'].includes(depStatus)) {
     return null;
   }
 
@@ -61,7 +61,7 @@ export function DeploymentPanel({
         </div>
       )}
 
-      {depStatus === 'PENDING' && isReady && (
+      {depStatus === 'READY_TO_DEPLOY' && isReady && (
         <div className="space-y-4">
           <div className="bg-blue-50 p-4 rounded border border-blue-200 text-sm text-blue-800 space-y-2">
             <p><strong>Safety Confirmation:</strong></p>

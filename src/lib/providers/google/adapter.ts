@@ -3,6 +3,7 @@ import { validateKeyword, validateHeadline, validateDescription } from './valida
 import { GoogleTargetState, GoogleCreativeItem } from './types';
 import { GoogleAccountContextProvider } from './context';
 import { GoogleAdsReadOnlyContextProvider } from './real-context';
+import { parseDestinationType } from '@/lib/campaigns/destination';
 
 export async function prepareGoogleDeployment(
   supabase: any,
@@ -30,6 +31,14 @@ export async function prepareGoogleDeployment(
     throw new Error('Invalid campaign state');
   }
 
+  const destType =
+    parseDestinationType(campaign.destination_type) ||
+    parseDestinationType(campaign.destination) ||
+    'WEBSITE';
+  if ((campaign.channels || []).some((c: string) => c.toLowerCase() === 'google') && destType !== 'WEBSITE') {
+    throw new Error('GOOGLE_DESTINATION_UNSUPPORTED');
+  }
+
   // 4. Verify Google integration is connected
   const { data: integration } = await supabase
     .from('integrations')
@@ -52,6 +61,16 @@ export async function prepareGoogleDeployment(
 
   if (!deployment) {
     throw new Error('Google channel deployment missing');
+  }
+
+  const existingSnapshot = deployment.target_state;
+  if (
+    deployment.status === 'READY_TO_DEPLOY' &&
+    existingSnapshot &&
+    Array.isArray(existingSnapshot.headlines) &&
+    existingSnapshot.headlines.length >= 3
+  ) {
+    return existingSnapshot as GoogleTargetState;
   }
 
   // 6. Verify creative exists
