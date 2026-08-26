@@ -1,3 +1,39 @@
+@import 'tailwindcss';
+
+/* Design tokens consumed by the components in src/components/ui.
+   Values reuse the existing palette defined further down this file. */
+@theme {
+  --color-background: #f6f3ee;
+  --color-foreground: #171717;
+
+  --color-card: #fffdfa;
+  --color-card-foreground: #171717;
+
+  --color-popover: #fffdfa;
+  --color-popover-foreground: #171717;
+
+  --color-primary: #171717;
+  --color-primary-foreground: #fffdfa;
+
+  --color-secondary: #f2eee7;
+  --color-secondary-foreground: #171717;
+
+  --color-muted: #f2eee7;
+  --color-muted-foreground: #77736d;
+
+  --color-accent: #f2eee7;
+  --color-accent-foreground: #171717;
+
+  --color-destructive: #b3261e;
+  --color-destructive-foreground: #fffdfa;
+
+  --color-border: #e5dfd5;
+  --color-input: #e5dfd5;
+  --color-ring: #8f6f55;
+
+  --font-heading: Georgia, 'Times New Roman', serif;
+}
+
 * { box-sizing: border-box; }
 html { background: #f6f3ee; }
 body {

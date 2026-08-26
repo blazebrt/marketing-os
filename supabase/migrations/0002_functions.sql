@@ -1,69 +1,22 @@
--- 011_milestone7_creatives.sql
--- Schema + RPCs for AI creatives, destination model, rate limits, and approval snapshot.
+-- 0002_functions.sql
+-- RPC functions called by the application.
+--
+-- rpc_approve_campaign is the milestone-7 version (the final one in the old
+-- 007 -> 008 -> 011 chain). The earlier two are superseded and are not
+-- recreated here.
+--
+-- All functions are `security invoker`, so row-level security still applies to
+-- the calling user. Do not change them to `security definer`.
 
-do $$ begin
-  create type public.destination_type as enum ('WEBSITE', 'WHATSAPP', 'PHONE');
-exception when duplicate_object then null; end $$;
+-- ---------------------------------------------------------------------------
+-- Validates a jsonb array of creative items: correct count, every item
+-- owner-approved, none rejected, and each value non-empty and within length.
+-- ---------------------------------------------------------------------------
 
-do $$ begin
-  create type public.creative_lifecycle_status as enum (
-    'DRAFT', 'GENERATING', 'GENERATED', 'PARTIALLY_REVIEWED', 'APPROVED', 'REJECTED'
-  );
-exception when duplicate_object then null; end $$;
-
-alter table public.unified_campaigns
-  add column if not exists destination_type text not null default 'WEBSITE',
-  add column if not exists landing_url text,
-  add column if not exists destination_verified_at timestamptz,
-  add column if not exists destination_verification_status text,
-  add column if not exists destination_verification_error text;
-
-do $$ begin
-  alter table public.unified_campaigns
-    add constraint unified_campaigns_destination_type_check
-    check (destination_type in ('WEBSITE', 'WHATSAPP', 'PHONE'));
-exception when duplicate_object then null; end $$;
-
-alter table public.creatives
-  add column if not exists campaign_id uuid references public.unified_campaigns(id) on delete cascade,
-  add column if not exists status text not null default 'DRAFT',
-  add column if not exists version integer not null default 1,
-  add column if not exists generation_lock_until timestamptz;
-
-do $$ begin
-  alter table public.creatives
-    add constraint creatives_status_check
-    check (status in ('DRAFT', 'GENERATING', 'GENERATED', 'PARTIALLY_REVIEWED', 'APPROVED', 'REJECTED'));
-exception when duplicate_object then null; end $$;
-
-create unique index if not exists creatives_one_per_campaign on public.creatives (campaign_id) where campaign_id is not null;
-
-alter table public.creatives_google
-  add column if not exists generation_status text not null default 'DRAFT',
-  add column if not exists last_generated_at timestamptz,
-  add column if not exists item_version integer not null default 1;
-
-create unique index if not exists creatives_google_creative_id_uidx on public.creatives_google (creative_id);
-
-create table if not exists public.generation_rate_events (
-  id uuid primary key default gen_random_uuid(),
-  owner_id uuid not null,
-  campaign_id uuid not null,
-  created_at timestamptz not null default now()
-);
-
-create index if not exists generation_rate_events_owner_created
-  on public.generation_rate_events (owner_id, created_at desc);
-create index if not exists generation_rate_events_campaign_created
-  on public.generation_rate_events (campaign_id, created_at desc);
-
-alter table public.generation_rate_events enable row level security;
-drop policy if exists owner_generation_rate_events on public.generation_rate_events;
-create policy owner_generation_rate_events on public.generation_rate_events
-  for all using (auth.uid() = owner_id) with check (auth.uid() = owner_id);
-
-create or replace function public.m7_json_items_ready(items jsonb, min_count int, max_count int, max_len int)
-returns boolean language plpgsql as $$
+create or replace function public.m7_json_items_ready(
+  items jsonb, min_count int, max_count int, max_len int
+)
+returns boolean language plpgsql as $fn$
 declare
   elem jsonb;
   val text;
@@ -93,10 +46,15 @@ begin
   end loop;
   return true;
 end;
-$$;
+$fn$;
+
+-- ---------------------------------------------------------------------------
+-- Takes the generation lock for a campaign's creative, enforcing per-owner and
+-- per-campaign rate limits and refusing to overwrite approved content.
+-- ---------------------------------------------------------------------------
 
 create or replace function public.rpc_acquire_generation_lock(p_campaign_id uuid)
-returns json language plpgsql security invoker as $$
+returns json language plpgsql security invoker as $fn$
 declare
   v_uid uuid;
   v_campaign record;
@@ -150,7 +108,9 @@ begin
     if v_creative.status = 'APPROVED' then
       raise exception 'CREATIVE_LOCKED';
     end if;
-    if v_creative.status = 'GENERATING' and v_creative.generation_lock_until is not null and v_creative.generation_lock_until > now() then
+    if v_creative.status = 'GENERATING'
+       and v_creative.generation_lock_until is not null
+       and v_creative.generation_lock_until > now() then
       raise exception 'RATE_LIMITED';
     end if;
 
@@ -182,10 +142,17 @@ begin
 
   return json_build_object('success', true, 'owner_id', v_uid, 'campaign_id', p_campaign_id);
 end;
-$$;
+$fn$;
+
+-- ---------------------------------------------------------------------------
+-- Atomic, fail-closed campaign approval. Re-validates budget ceilings, creative
+-- approval, destination and integrations inside the transaction (TOCTOU
+-- protection), then moves the campaign to READY_TO_DEPLOY and writes the
+-- deployment target state.
+-- ---------------------------------------------------------------------------
 
 create or replace function public.rpc_approve_campaign(p_campaign_id uuid, p_owner_id uuid)
-returns json language plpgsql security invoker as $$
+returns json language plpgsql security invoker as $fn$
 declare
     v_uid uuid;
     v_owner_id uuid;
@@ -344,7 +311,10 @@ begin
 
     if lower(coalesce(v_campaign.destination, '')) like '%website%' or v_dest_type = 'WEBSITE' then
         if exists (select 1 from unnest(v_requested_providers) p where p = 'website') then
-          if not exists (select 1 from public.integrations where owner_id = v_owner_id and lower(provider) = 'website' and status = 'connected') then
+          if not exists (
+            select 1 from public.integrations
+            where owner_id = v_owner_id and lower(provider) = 'website' and status = 'connected'
+          ) then
               raise exception 'Website destination requires connected website tracking integration';
           end if;
         end if;
@@ -374,7 +344,10 @@ begin
           'reasons', jsonb_build_array('Approval snapshot uses conservative MANUAL_CPC'),
           'safetyConstraints', jsonb_build_array('max_auto_budget_increase=0')
         ),
-        'adGroup', jsonb_build_object('name', coalesce(v_campaign.service, 'Campaign') || ' - Google', 'type', 'SEARCH_STANDARD'),
+        'adGroup', jsonb_build_object(
+          'name', coalesce(v_campaign.service, 'Campaign') || ' - Google',
+          'type', 'SEARCH_STANDARD'
+        ),
         'keywords', v_google.keywords,
         'headlines', v_google.headlines,
         'descriptions', v_google.descriptions,
@@ -426,9 +399,11 @@ begin
 
     insert into public.audit_logs (owner_id, action, resource_type, resource_id, details)
     values
-    (v_owner_id, 'CAMPAIGN_APPROVED', 'campaign', p_campaign_id, '{"reason": "Campaign explicitly approved by owner"}'),
-    (v_owner_id, 'CAMPAIGN_STATE_CHANGED', 'campaign', p_campaign_id, '{"transition": "APPROVED -> READY_TO_DEPLOY"}');
+    (v_owner_id, 'CAMPAIGN_APPROVED', 'campaign', p_campaign_id,
+      '{"reason": "Campaign explicitly approved by owner"}'::jsonb),
+    (v_owner_id, 'CAMPAIGN_STATE_CHANGED', 'campaign', p_campaign_id,
+      '{"transition": "APPROVED -> READY_TO_DEPLOY"}'::jsonb);
 
     return json_build_object('success', true);
 end;
-$$;
+$fn$;
