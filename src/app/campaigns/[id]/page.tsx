@@ -1,24 +1,30 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
-import { verifyCampaign, requestApproval, approveCampaign } from '../actions';
+import { verifyCampaign } from '../actions';
+import { GenerateCreativesButton } from './GenerateCreativesButton';
+import { VerificationPanel } from './VerificationPanel';
 
 export default async function CampaignDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = await params;
   const id = resolvedParams.id;
-  
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return redirect('/login');
 
-  const { data: campaign } = await supabase.from('unified_campaigns').select('*').eq('id', id).single();
+  const { data: campaign } = await supabase
+    .from('unified_campaigns')
+    .select('*')
+    .eq('id', id)
+    .eq('owner_id', user.id)
+    .single();
   if (!campaign) return redirect('/campaigns');
 
   const { data: deployments } = await supabase.from('channel_deployments').select('*').eq('campaign_id', id);
 
-  let verification: any = null;
+  let verification: { checks: { name: string; pass: boolean; message: string }[]; allPass: boolean } | null = null;
   if (campaign.status === 'DRAFT' || campaign.status === 'PENDING_APPROVAL') {
-    // We run verification dynamically on render for these states to show the user the status
-    verification = await verifyCampaign(id);
+    verification = await verifyCampaign(id, { checkReachability: false });
   }
 
   return (
@@ -43,72 +49,46 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           <p className="text-sm text-gray-500">Channels</p>
           <p className="font-medium">{campaign.channels.join(', ')}</p>
         </div>
+        <div className="p-4 bg-gray-50 rounded">
+          <p className="text-sm text-gray-500">Destination type</p>
+          <p className="font-medium">{campaign.destination_type || campaign.destination}</p>
+        </div>
+        <div className="p-4 bg-gray-50 rounded">
+          <p className="text-sm text-gray-500">Landing URL</p>
+          <p className="font-medium">{campaign.landing_url || '—'}</p>
+        </div>
       </div>
 
+      <p className="text-sm text-slate-600 mb-6">
+        Approved creatives are not live on Google Ads. Ads go live only after a successful test-account deployment that reconciles as MATCH.
+      </p>
+
       {(campaign.status === 'DRAFT' || campaign.status === 'PENDING_APPROVAL') && verification && (
-        <div className="mb-8 border p-6 rounded-lg bg-white shadow-sm">
-          <h2 className="text-xl font-bold mb-4">Pre-launch Verification</h2>
-          <ul className="space-y-2 mb-6">
-            {verification.checks.map((c: any, i: number) => (
-              <li key={i} className="flex items-center">
-                <span className={`mr-2 font-bold ${c.pass ? 'text-green-600' : 'text-red-600'}`}>
-                  {c.pass ? '✓' : '✗'}
-                </span>
-                <span>{c.name}: <span className="text-gray-600 text-sm">{c.message}</span></span>
-              </li>
-            ))}
-          </ul>
-          
-          {verification.allPass ? (
-            campaign.status === 'DRAFT' ? (
-              <form action={async () => {
-                'use server';
-                await requestApproval(id);
-              }}>
-                <button className="bg-black text-white px-6 py-3 rounded-lg font-medium">Submit for Approval</button>
-              </form>
-            ) : (
-              <form action={async () => {
-                'use server';
-                await approveCampaign(id);
-              }}>
-                <button className="bg-green-600 text-white px-6 py-3 rounded-lg font-medium">Approve Campaign</button>
-              </form>
-            )
-          ) : (
-            <div className="flex flex-col gap-4">
-              <div className="p-4 bg-red-50 text-red-700 rounded border border-red-100">
-                Please fix the issues above before this campaign can progress.
-              </div>
-              {!campaign.creative_id && (
-                <form action={async () => {
-                  'use server';
-                  const { redirect } = await import('next/navigation');
-                  const { generateAndSaveGoogleCreatives } = await import('@/lib/providers/google/generative');
-                  await generateAndSaveGoogleCreatives(id, campaign.owner_id);
-                  redirect(`/campaigns/${id}/google`);
-                }}>
-                  <button className="bg-blue-600 text-white px-6 py-3 rounded-lg font-medium flex items-center justify-center gap-2">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-                    Generate AI Creatives
-                  </button>
-                </form>
-              )}
-              {campaign.creative_id && (
-                 <a href={`/campaigns/${id}/google`} className="inline-block text-center bg-blue-100 text-blue-700 px-6 py-3 rounded-lg font-medium border border-blue-200 hover:bg-blue-200">
-                   Review Google Creatives
-                 </a>
-              )}
+        <>
+          <VerificationPanel
+            campaignId={id}
+            status={campaign.status}
+            checks={verification.checks}
+            allPass={verification.allPass}
+          />
+          {!campaign.creative_id && (
+            <div className="mb-8">
+              <GenerateCreativesButton campaignId={id} />
             </div>
           )}
-        </div>
+          {campaign.creative_id && (
+            <a href={`/campaigns/${id}/google`} className="inline-block text-center bg-blue-100 text-blue-700 px-6 py-3 rounded-lg font-medium border border-blue-200 hover:bg-blue-200 mb-8">
+              Review Google Creatives
+            </a>
+          )}
+        </>
       )}
 
       {deployments && deployments.length > 0 && (
         <div>
           <h2 className="text-xl font-bold mb-4">Channel Deployments</h2>
           <div className="space-y-2">
-            {deployments.map((d: any) => (
+            {deployments.map((d: { id: string; provider: string; status: string }) => (
               <div key={d.id} className="p-4 border rounded flex justify-between">
                 <span className="font-medium capitalize">{d.provider}</span>
                 <span className="bg-gray-100 px-2 py-1 text-sm rounded">{d.status}</span>
