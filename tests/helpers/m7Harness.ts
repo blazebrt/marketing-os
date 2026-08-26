@@ -1,89 +1,25 @@
 import { PGlite } from '@electric-sql/pglite';
+import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
 import fs from 'fs';
 import path from 'path';
 
 export async function createM7Database() {
-  const db = new PGlite();
+  // Build the database from the real migrations rather than a hand-written
+  // partial copy, so these tests exercise the schema and RPCs we actually ship.
+  const db = new PGlite({ extensions: { pgcrypto } });
+
+  // Supabase provides the auth schema; PGlite does not. The policies and RPCs
+  // in the migrations call auth.uid(), so it has to exist before they load.
   await db.exec(`
     create schema if not exists auth;
     create or replace function auth.uid() returns uuid language sql as $$ select null::uuid; $$;
-
-    create type unified_campaign_status as enum ('DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'READY_TO_DEPLOY', 'ACTIVE', 'PAUSED', 'COMPLETED', 'FAILED');
-    create type channel_deployment_status as enum ('PENDING', 'PREPARING', 'DEPLOYED', 'FAILED', 'PAUSED', 'READY_TO_DEPLOY', 'DEPLOYMENT_LOCKED', 'CREATING_CAMPAIGN', 'CREATING_AD_GROUP', 'CREATING_ADS', 'CREATING_KEYWORDS', 'VERIFYING', 'ACTIVE');
-
-    create table public.unified_campaigns (
-      id uuid primary key default gen_random_uuid(),
-      owner_id uuid not null,
-      service text not null,
-      offer text not null,
-      budget_type text not null,
-      budget_amount numeric(15, 2) not null,
-      duration_days int not null,
-      max_daily_spend numeric(15, 2) not null,
-      max_campaign_spend numeric(15, 2) not null,
-      max_auto_budget_increase numeric(15, 2) not null default 0,
-      destination text not null,
-      channels text[] not null,
-      creative_id text,
-      status unified_campaign_status not null default 'DRAFT',
-      created_at timestamptz not null default now(),
-      updated_at timestamptz not null default now()
-    );
-
-    create table public.channel_deployments (
-      id uuid primary key default gen_random_uuid(),
-      campaign_id uuid not null references public.unified_campaigns(id) on delete cascade,
-      owner_id uuid not null,
-      provider text not null,
-      status channel_deployment_status not null default 'PENDING',
-      target_state jsonb not null default '{}'::jsonb,
-      actual_state jsonb not null default '{}'::jsonb,
-      reconciliation_status text,
-      created_at timestamptz not null default now(),
-      updated_at timestamptz not null default now(),
-      unique(campaign_id, provider)
-    );
-
-    create table public.creatives (
-      id uuid primary key default gen_random_uuid(),
-      owner_id uuid not null,
-      name text not null,
-      type text not null,
-      file_url text,
-      created_at timestamptz not null default now()
-    );
-
-    create table public.creatives_google (
-      id uuid primary key default gen_random_uuid(),
-      creative_id uuid not null references public.creatives(id) on delete cascade,
-      owner_id uuid not null,
-      google_asset_id text,
-      headlines jsonb not null default '[]'::jsonb,
-      descriptions jsonb not null default '[]'::jsonb,
-      keywords jsonb not null default '[]'::jsonb,
-      created_at timestamptz not null default now()
-    );
-
-    create table public.integrations (
-      id uuid primary key default gen_random_uuid(),
-      owner_id uuid not null,
-      provider text not null,
-      status text not null
-    );
-
-    create table public.audit_logs (
-      id uuid primary key default gen_random_uuid(),
-      owner_id uuid not null,
-      action text not null,
-      resource_type text,
-      resource_id text,
-      details jsonb,
-      created_at timestamptz not null default now()
-    );
   `);
 
-  const migration = fs.readFileSync(path.join(process.cwd(), 'supabase/migrations/011_milestone7_creatives.sql'), 'utf8');
-  await db.exec(migration);
+  const migrationsDir = path.join(process.cwd(), 'supabase/migrations');
+  for (const file of fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort()) {
+    await db.exec(fs.readFileSync(path.join(migrationsDir, file), 'utf8'));
+  }
+
   return db;
 }
 
