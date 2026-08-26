@@ -1,31 +1,42 @@
-/**
- * AI Keyword and Ad Copy Generation Mock for Google Ads
- */
+import { v4 as uuidv4 } from 'uuid';
+import { GoogleCreativeItem } from './types';
 
-export interface GoogleCreativePlan {
-  headlines: string[];
-  descriptions: string[];
-  keywords: { keyword: string; match_type: string; ai_generated: boolean; owner_approved: boolean }[];
-}
-
-export async function generateSearchCreativePlan(service: string, offer: string): Promise<GoogleCreativePlan> {
-  // In reality, this would call OpenAI API
-  // Using a mock to safely simulate AI creative generation for the integration flow
+// In V1, this simulates the AI generation process. 
+// A real system would call Vertex AI or OpenAI here.
+export function generateGoogleCreative(campaignContext: any) {
+  // Mock generated output
+  const keywordStr = campaignContext?.offer ? `${campaignContext.service} ${campaignContext.offer}` : campaignContext.service;
   
-  return {
-    headlines: [
-      `Lakme Salon - ${service}`,
-      `Exclusive Offer: ${offer}`,
-      `Book ${service} Today`
-    ],
-    descriptions: [
-      `Experience the best ${service} at Lakme Salon Rajajipuram.`,
-      `Claim your ${offer} now and book an appointment with our expert stylists.`
-    ],
-    keywords: [
-      { keyword: `best ${service} near me`, match_type: 'exact', ai_generated: true, owner_approved: false },
-      { keyword: `${service} rajajipuram`, match_type: 'phrase', ai_generated: true, owner_approved: false },
-      { keyword: `salon ${offer}`, match_type: 'phrase', ai_generated: true, owner_approved: false }
-    ]
-  };
+  const keywords: GoogleCreativeItem[] = [
+    {
+      id: uuidv4(),
+      original_value: keywordStr.substring(0, 80),
+      current_value: keywordStr.substring(0, 80),
+      ai_generated: true,
+      owner_approved: false,
+      match_type: 'PHRASE'
+    }
+  ];
+
+  const headlines: GoogleCreativeItem[] = [
+    {
+      id: uuidv4(),
+      original_value: campaignContext.service.substring(0, 30),
+      current_value: campaignContext.service.substring(0, 30),
+      ai_generated: true,
+      owner_approved: false
+    }
+  ];
+
+  const descriptions: GoogleCreativeItem[] = [
+    {
+      id: uuidv4(),
+      original_value: `Book our ${campaignContext.service.substring(0, 50)} today!`,
+      current_value: `Book our ${campaignContext.service.substring(0, 50)} today!`,
+      ai_generated: true,
+      owner_approved: false
+    }
+  ];
+
+  return { keywords, headlines, descriptions };
 }

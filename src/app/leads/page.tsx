@@ -1,62 +1,59 @@
 import { createClient } from '@/lib/supabase/server';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { updateLeadStatus, updateLeadRevenue } from './actions';
+import { redirect } from 'next/navigation';
+import { updateLead } from './actions';
 
 export default async function LeadsPage() {
   const supabase = await createClient();
-  
-  // Fetch Leads securely (RLS enforced)
-  const { data: leads } = await supabase
-    .from('leads')
-    .select('*')
-    .order('created_at', { ascending: false });
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return redirect('/login');
+
+  const { data: leads } = await supabase.from('leads').select('*').order('created_at', { ascending: false });
+
+  const statuses = ['NEW', 'CONTACTED', 'BOOKED', 'VISITED', 'PAID', 'LOST', 'UNKNOWN'];
 
   return (
-    <div className="p-8 max-w-6xl mx-auto">
-      <h1 className="text-3xl font-bold mb-8">Lead Pipeline</h1>
+    <div className="p-8 max-w-7xl mx-auto">
+      <h1 className="text-2xl font-bold mb-6">Lead Pipeline</h1>
       
-      <div className="grid gap-4">
-        {leads?.map((lead) => (
-          <Card key={lead.id}>
-            <CardHeader className="pb-2">
-              <div className="flex justify-between items-start">
-                <div>
-                  <CardTitle>{lead.name || 'Unknown User'}</CardTitle>
-                  <p className="text-sm text-gray-500">{lead.phone} | {lead.email}</p>
-                </div>
-                <div className="flex gap-2">
-                  <form action={updateLeadStatus.bind(null, lead.id, lead.status, 'CONTACTED')}>
-                    <Button variant="outline" size="sm">Mark Contacted</Button>
-                  </form>
-                  <form action={updateLeadStatus.bind(null, lead.id, lead.status, 'BOOKED')}>
-                    <Button variant="outline" size="sm">Mark Booked</Button>
-                  </form>
-                  <form action={updateLeadStatus.bind(null, lead.id, lead.status, 'PAID')}>
-                    <Button variant="default" size="sm">Mark Paid</Button>
-                  </form>
+      <div className="bg-white shadow overflow-hidden sm:rounded-md">
+        <ul className="divide-y divide-gray-200">
+          {leads?.map((lead: any) => (
+            <li key={lead.id} className="p-4 flex flex-col md:flex-row items-center justify-between">
+              <div className="flex-1">
+                <h3 className="text-lg font-medium">{lead.name || 'Unknown Name'}</h3>
+                <p className="text-sm text-gray-500">{lead.phone} • {lead.email}</p>
+                <div className="mt-1 text-xs text-gray-400">
+                  <span className="font-semibold text-gray-600">Source:</span> {lead.source_channel || 'Direct'} 
+                  {lead.campaign_name && ` • Campaign: ${lead.campaign_name}`}
                 </div>
               </div>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 text-sm gap-4">
-                <div>
-                  <p><strong>Status:</strong> {lead.status}</p>
-                  <p><strong>Revenue:</strong> ${lead.revenue_amount || 0}</p>
-                </div>
-                <div>
-                  <p><strong>Channel:</strong> {lead.source_channel || 'Organic'}</p>
-                  <p><strong>Campaign:</strong> {lead.campaign_name || 'N/A'}</p>
-                  <p className="text-xs text-gray-400 truncate">fbclid: {lead.fbclid || 'None'}</p>
-                  <p className="text-xs text-gray-400 truncate">utm_source: {lead.utm_source || 'None'}</p>
-                </div>
+              <div className="flex-1 flex justify-end">
+                <form action={async (formData) => {
+                  'use server';
+                  const s = formData.get('status') as string;
+                  const r = parseFloat(formData.get('revenue') as string);
+                  await updateLead(lead.id, s, r);
+                }} className="flex items-center gap-4">
+                  
+                  <div className="flex flex-col">
+                    <label className="text-xs text-gray-500">Status</label>
+                    <select name="status" defaultValue={lead.status} className="border p-1 rounded">
+                      {statuses.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                  
+                  <div className="flex flex-col">
+                    <label className="text-xs text-gray-500">Revenue</label>
+                    <input type="number" name="revenue" defaultValue={lead.revenue_amount} className="border p-1 rounded w-24" />
+                  </div>
+                  
+                  <button type="submit" className="mt-4 px-3 py-1 bg-black text-white text-sm rounded">Save</button>
+                </form>
               </div>
-            </CardContent>
-          </Card>
-        ))}
-        {(!leads || leads.length === 0) && (
-          <p className="text-gray-500 text-center py-12">No leads found.</p>
-        )}
+            </li>
+          ))}
+          {!leads?.length && <div className="p-8 text-center text-gray-500">No leads found.</div>}
+        </ul>
       </div>
     </div>
   );

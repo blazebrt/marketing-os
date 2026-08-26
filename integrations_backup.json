@@ -1,0 +1,13 @@
+[
+  {
+    "id": "5dd33162-74f5-42dd-9991-192dadd8a8aa",
+    "owner_id": "4aa63633-c560-4e1c-bdad-c397e9288939",
+    "provider": "google",
+    "status": "connected",
+    "created_at": "2026-08-25T13:51:12.481763+00:00",
+    "updated_at": "2026-08-25T15:16:58.8+00:00",
+    "external_id": null,
+    "last_verified_at": "2026-08-25T15:16:58.8+00:00",
+    "error_message": null
+  }
+]

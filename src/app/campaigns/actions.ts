@@ -1,90 +1,170 @@
-'use server'
+'use server';
 
 import { createClient } from '@/lib/supabase/server';
+import { CampaignIntentSchema } from '@/lib/schemas/campaigns';
+import { calculateSafetyLimits } from '@/lib/campaigns/safeguards';
 import { logAudit } from '@/lib/audit';
-import { redirect } from 'next/navigation';
+import { revalidatePath } from 'next/cache';
 
-export async function createPendingCampaign(data: any) {
+export async function saveDraftCampaign(payload: any) {
   const supabase = await createClient();
-
-  // Validate user (only owner should launch)
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
-    throw new Error('Unauthorized');
+  if (!user) throw new Error('Unauthorized');
+
+  const parsed = CampaignIntentSchema.parse(payload);
+  const limits = calculateSafetyLimits(parsed.budget_type, parsed.budget_amount, parsed.duration_days);
+
+  const { data, error } = await supabase.from('unified_campaigns').insert({
+    owner_id: user.id,
+    service: parsed.service,
+    offer: parsed.offer,
+    budget_type: parsed.budget_type,
+    budget_amount: parsed.budget_amount,
+    duration_days: parsed.duration_days,
+    max_daily_spend: limits.maxDaily,
+    max_campaign_spend: limits.maxTotal,
+    destination: parsed.destination,
+    channels: parsed.channels,
+    creative_id: null, // UI removed it, force null
+    status: 'DRAFT'
+  }).select('id').single();
+
+  if (error) throw new Error('Database error saving draft');
+
+  await logAudit(user.id, 'CAMPAIGN_CREATED', 'campaign', data.id, null, null, 'Draft campaign created via wizard');
+  return data.id;
+}
+
+export async function verifyCampaign(campaignId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Unauthorized');
+
+  const { data: campaign } = await supabase.from('unified_campaigns').select('*').eq('id', campaignId).eq('owner_id', user.id).single();
+  if (!campaign) throw new Error('Campaign not found');
+
+  const checks = [];
+  
+  try {
+    calculateSafetyLimits(campaign.budget_type, Number(campaign.budget_amount), campaign.duration_days);
+    checks.push({ name: 'Budget & Duration', pass: true, message: 'Budget and duration are within configured safety bounds' });
+  } catch (e: any) {
+    checks.push({ name: 'Budget & Duration', pass: false, message: e.message });
   }
 
-  // Derived Safe Limits (internal logic hidden from owner)
-  // Owner just enters "budget", we decide internally how to safely deploy it.
-  const isDaily = data.budgetType === 'daily';
-  const amount = parseFloat(data.budget);
-  
-  const maxCampaignSpend = isDaily ? amount * parseInt(data.duration) : amount;
-  const maxAutoIncrease = amount * 0.2; // Max 20% auto increase buffer
+  if (!campaign.creative_id) {
+    checks.push({ name: 'Creative', pass: false, message: 'No creative attached' });
+  } else {
+    const { data: cr } = await supabase.from('creatives').select('id').eq('id', campaign.creative_id).eq('owner_id', user.id).single();
+    if (!cr) {
+      checks.push({ name: 'Creative', pass: false, message: 'Creative record not found or inaccessible' });
+    } else {
+      const { data: cg } = await supabase.from('creatives_google').select('*').eq('creative_id', campaign.creative_id).single();
+      if (!cg) {
+        checks.push({ name: 'Creative Content', pass: false, message: 'Google creative content missing' });
+      } else {
+        const approvedHeadlines = (cg.headlines || []).filter((h: any) => h.owner_approved);
+        const approvedDescriptions = (cg.descriptions || []).filter((d: any) => d.owner_approved);
+        const approvedKeywords = (cg.keywords || []).filter((k: any) => k.owner_approved);
+        
+        const errors = [];
+        if (approvedHeadlines.length < 3) errors.push(`Need 3 approved headlines (have ${approvedHeadlines.length})`);
+        if (approvedDescriptions.length < 2) errors.push(`Need 2 approved descriptions (have ${approvedDescriptions.length})`);
+        if (approvedKeywords.length < 1) errors.push(`Need 1 approved keyword (have ${approvedKeywords.length})`);
 
-  const campaignInsert = {
-    service: data.service,
-    offer: data.offer,
-    status: 'pending_approval',
-    budget_type: data.budgetType,
-    budget_amount: amount,
-    max_daily_spend: isDaily ? amount : amount / parseInt(data.duration),
-    max_campaign_spend: maxCampaignSpend,
-    max_auto_budget_increase: maxAutoIncrease,
-    // Add simple duration offset
-    start_at: new Date().toISOString(),
-    end_at: new Date(Date.now() + parseInt(data.duration) * 24 * 60 * 60 * 1000).toISOString(),
-  };
-
-  const { data: campaign, error: campError } = await supabase
-    .from('unified_campaigns')
-    .insert(campaignInsert)
-    .select('id')
-    .single();
-
-  if (campError) throw new Error('Failed to create campaign');
-
-  // Insert Channel Deployments
-  const channels = data.channels || [];
-  
-  if (channels.includes('meta')) {
-    const { data: deployment } = await supabase.from('channel_deployments').insert({
-      unified_campaign_id: campaign.id,
-      channel: 'meta',
-      channel_specific_allocation: channels.length === 2 ? amount / 2 : amount,
-      status: 'pending'
-    }).select('id').single();
-
-    if (deployment) {
-      await supabase.from('creatives_meta').insert({
-        channel_deployment_id: deployment.id,
-        media_url: data.metaCreativeUrl || 'placeholder',
-        format: 'image'
-      });
+        if (errors.length === 0) {
+          checks.push({ name: 'Creative', pass: true, message: 'All required creative components are approved' });
+        } else {
+          checks.push({ name: 'Creative', pass: false, message: errors.join(', ') });
+        }
+      }
     }
   }
 
-  if (channels.includes('google')) {
-    const { data: deployment } = await supabase.from('channel_deployments').insert({
-      unified_campaign_id: campaign.id,
-      channel: 'google',
-      channel_specific_allocation: channels.length === 2 ? amount / 2 : amount,
-      status: 'pending'
-    }).select('id').single();
+  if (campaign.destination) {
+    const { validateDestinationUrl } = await import('@/lib/urlValidator');
+    const urlCheck = await validateDestinationUrl(campaign.destination);
+    if (urlCheck.valid) {
+      checks.push({ name: 'Destination', pass: true, message: 'Destination is a valid reachable URL' });
+    } else {
+      checks.push({ name: 'Destination', pass: false, message: urlCheck.error || 'Invalid destination URL' });
+    }
+  } else {
+    checks.push({ name: 'Destination', pass: false, message: 'Missing destination' });
+  }
 
-    if (deployment) {
-      // Owner doesn't manually configure exact keywords yet, AI placeholder structure
-      await supabase.from('creatives_google').insert({
-        channel_deployment_id: deployment.id,
-        headlines: JSON.stringify([data.offer, data.service]),
-        descriptions: JSON.stringify([`Book your ${data.service} today and get ${data.offer}`]),
-        keywords: JSON.stringify([
-          { keyword: data.service, match_type: 'exact', ai_generated: true, owner_approved: true }
-        ])
-      });
+  const { data: creds } = await supabase.from('integrations').select('provider').eq('owner_id', user.id).eq('status', 'connected');
+  const connectedProviders = creds?.map((c: any) => c.provider.toLowerCase()) || [];
+  
+  if (!campaign.channels || campaign.channels.length === 0) {
+    checks.push({ name: 'Channels', pass: false, message: 'No channels selected' });
+  } else {
+    for (const channel of campaign.channels) {
+      if (connectedProviders.includes(channel.toLowerCase())) {
+        checks.push({ name: `Integration: ${channel}`, pass: true, message: `${channel} connection verified via safe metadata` });
+      } else {
+        checks.push({ name: `Integration: ${channel}`, pass: false, message: `${channel} is disconnected or missing` });
+      }
     }
   }
 
-  await logAudit('owner', 'CREATE_CAMPAIGN', 'unified_campaign', campaign.id, null, campaignInsert, 'Wizard submission');
+  if (campaign.destination?.toLowerCase().includes('website')) {
+    if (connectedProviders.includes('website')) {
+      checks.push({ name: 'Tracking Readiness', pass: true, message: 'Website tracking integration is active' });
+    } else {
+      checks.push({ name: 'Tracking Readiness', pass: false, message: 'Website tracking required but disconnected' });
+    }
+  } else {
+    checks.push({ name: 'Tracking Readiness', pass: true, message: 'No explicit tracking setup required for this destination' });
+  }
+
+  const allPass = checks.every(c => c.pass);
+  await logAudit(user.id, 'PRELAUNCH_VERIFICATION', 'campaign', campaignId, null, null, `Verification ${allPass ? 'Passed' : 'Failed'}`);
   
-  redirect('/');
+  return { checks, allPass };
+}
+
+export async function requestApproval(campaignId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Unauthorized');
+
+  const verification = await verifyCampaign(campaignId);
+  if (!verification.allPass) {
+    throw new Error('Prelaunch verification failed. Cannot request approval.');
+  }
+
+  const { error, data } = await supabase.from('unified_campaigns')
+    .update({ status: 'PENDING_APPROVAL', updated_at: new Date().toISOString() })
+    .eq('id', campaignId)
+    .eq('owner_id', user.id)
+    .eq('status', 'DRAFT')
+    .select('id').single();
+
+  if (error || !data) throw new Error('State transition to PENDING_APPROVAL failed (must be in DRAFT state)');
+
+  await logAudit(user.id, 'CAMPAIGN_SUBMITTED_FOR_APPROVAL', 'campaign', campaignId, null, null, 'DRAFT -> PENDING_APPROVAL');
+  revalidatePath('/campaigns');
+  revalidatePath(`/campaigns/${campaignId}`);
+}
+
+
+export async function approveCampaign(campaignId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Unauthorized');
+
+  // Verify campaign logic is now handled 100% inside the transaction.
+  const { data, error } = await supabase.rpc('rpc_approve_campaign', {
+    p_campaign_id: campaignId,
+    p_owner_id: user.id
+  });
+
+  if (error || !data?.success) {
+    throw new Error(error?.message || 'Deployment mapping or state transition failed transactionally.');
+  }
+
+  revalidatePath('/campaigns');
+  revalidatePath(`/campaigns/${campaignId}`);
+  return true;
 }

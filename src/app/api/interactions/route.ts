@@ -1,40 +1,60 @@
-import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { v4 as uuidv4 } from 'uuid';
+import { NextRequest, NextResponse } from 'next/server';
+import { authenticateWebhook } from '@/lib/webhooks/verify';
+import { InteractionSchema } from '@/lib/schemas/tracking';
+import { createServiceClient } from '@/lib/supabase/service';
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  let rawBody: string;
   try {
-    const body = await req.json();
-    const supabase = await createClient();
+    rawBody = await req.text();
+  } catch {
+    return NextResponse.json({ error: 'invalid_payload' }, { status: 400 });
+  }
 
-    // The public website backend MUST own and generate the session_id
-    const sessionId = body.session_id;
-    if (!sessionId) {
-      return NextResponse.json({ error: 'Missing session_id' }, { status: 400 });
-    }
+  let authResult;
+  try {
+    authResult = await authenticateWebhook(req, rawBody);
+  } catch (authError) {
+    return NextResponse.json({ error: 'webhook_verification_failed' }, { status: 401 });
+  }
 
-    // Never trust client-provided campaign IDs unconditionally
-    const interaction = {
-      type: body.type, // 'website_visit', 'whatsapp_click', 'phone_click'
-      session_id: sessionId,
-      utm_source: body.utm_source?.substring(0, 255),
-      utm_medium: body.utm_medium?.substring(0, 255),
-      utm_campaign: body.utm_campaign?.substring(0, 255),
-      fbclid: body.fbclid?.substring(0, 255),
-      gclid: body.gclid?.substring(0, 255),
-    };
+  let json;
+  try {
+    json = JSON.parse(rawBody);
+  } catch {
+    return NextResponse.json({ error: 'invalid_payload' }, { status: 400 });
+  }
 
-    // Use service role to insert (this is a public endpoint)
-    const { error } = await supabase
-      .from('marketing_interactions')
-      .insert(interaction);
+  const result = InteractionSchema.safeParse(json);
+  if (!result.success) {
+    return NextResponse.json({ error: 'invalid_payload' }, { status: 400 });
+  }
+
+  try {
+    const serviceClient = createServiceClient();
+    const { error } = await serviceClient.from('marketing_interactions').upsert({
+      owner_id: authResult.ownerId,
+      session_id: result.data.session_id,
+      interaction_type: result.data.interaction_type,
+      source: result.data.source,
+      campaign_name: result.data.campaign_name,
+      ad_group_name: result.data.ad_group_name,
+      ad_name: result.data.ad_name,
+      creative_id: result.data.creative_id,
+      utm_source: result.data.utm_source,
+      utm_medium: result.data.utm_medium,
+      utm_campaign: result.data.utm_campaign,
+      fbclid: result.data.fbclid,
+      gclid: result.data.gclid,
+      landing_page: result.data.landing_page
+    }, { onConflict: 'owner_id, session_id, interaction_type' });
 
     if (error) {
-      return NextResponse.json({ error: 'Failed to record interaction' }, { status: 500 });
+      throw new Error('database_error');
     }
 
-    return NextResponse.json({ success: true, session_id: sessionId });
-  } catch (err) {
-    return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
+    return NextResponse.json({ success: true, session_id: result.data.session_id });
+  } catch (e: any) {
+    return NextResponse.json({ error: 'request_rejected' }, { status: 400 });
   }
 }

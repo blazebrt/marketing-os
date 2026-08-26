@@ -1,3 +1,6 @@
+import * as dotenv from 'dotenv';
+dotenv.config({ path: '.env.local' });
+import './setup';
 // Mock test to demonstrate Spending Guardrails & Audit Logic
 const assert = require('assert');
 

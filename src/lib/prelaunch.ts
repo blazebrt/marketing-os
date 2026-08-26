@@ -27,7 +27,7 @@ export async function runPrelaunchVerification(campaignId: string): Promise<Prel
   
   const requiredProviders = ['meta', 'website']; // Assuming Meta and Website are always required
   requiredProviders.forEach(provider => {
-    const integration = integrations?.find(i => i.provider === provider);
+    const integration = integrations?.find((i: any) => i.provider === provider);
     if (!integration || integration.status !== 'connected') {
       errors.push(`Integration '${provider}' is not connected.`);
     }

@@ -2,64 +2,68 @@ import { createClient } from './supabase/server';
 
 export async function withIdempotency<T>(
   key: string,
-  actor: string,
-  requestPath: string,
-  operation: () => Promise<T>
+  ownerId: string,
+  resourceType: string,
+  operation: () => Promise<T>,
+  ttlMs: number = 60000
 ): Promise<T> {
   const supabase = await createClient();
+  
+  // 1. Try to lock (insert processing state)
+  const { error: insertError } = await supabase.from('idempotency_keys').insert({
+    id: key,
+    owner_id: ownerId,
+    resource_type: resourceType,
+    status: 'processing'
+  });
 
-  // 1. Try to lock the key
-  const { data: existingKey, error: fetchError } = await supabase
-    .from('idempotency_keys')
-    .select('*')
-    .eq('key', key)
-    .single();
+  if (insertError) {
+    // 2. If it exists, check status and staleness
+    const { data: existing } = await supabase
+      .from('idempotency_keys')
+      .select('*')
+      .eq('id', key)
+      .eq('owner_id', ownerId)
+      .single();
 
-  if (existingKey) {
-    if (existingKey.completed_at) {
-      // Return cached response
-      return existingKey.response_body as T;
-    } else {
-      throw new Error('Operation is already in progress.');
+    if (!existing) {
+       throw new Error('Idempotency key collision with different owner or unknown error');
+    }
+
+    if (existing.status === 'completed') {
+      return existing.response as T; // Cached response
+    }
+
+    if (existing.status === 'processing') {
+      const lockAge = Date.now() - new Date(existing.updated_at).getTime();
+      if (lockAge < ttlMs) {
+         throw new Error('Concurrent request processing. Race protection triggered.');
+      }
+      // Stale lock recovery - we will proceed
     }
   }
 
-  // 2. Insert new key (lock)
-  const { error: insertError } = await supabase
-    .from('idempotency_keys')
-    .insert({
-      key,
-      actor,
-      request_path: requestPath,
-      locked_at: new Date().toISOString(),
-    });
-
-  if (insertError) {
-    throw new Error('Failed to acquire idempotency lock. Potential concurrent request.');
-  }
-
-  // 3. Execute the operation
+  // 3. Execute
   try {
     const result = await operation();
-
-    // 4. Cache the result
-    await supabase
-      .from('idempotency_keys')
-      .update({
-        response_body: result as any,
-        response_status: 200,
-        completed_at: new Date().toISOString(),
-      })
-      .eq('key', key);
-
+    await supabase.from('idempotency_keys').upsert({
+      id: key,
+      owner_id: ownerId,
+      resource_type: resourceType,
+      status: 'completed',
+      response: result as any,
+      updated_at: new Date().toISOString()
+    });
     return result;
   } catch (error: any) {
-    // Release lock on failure so it can be retried safely
-    await supabase
-      .from('idempotency_keys')
-      .delete()
-      .eq('key', key);
-    
+    await supabase.from('idempotency_keys').upsert({
+      id: key,
+      owner_id: ownerId,
+      resource_type: resourceType,
+      status: 'failed',
+      response: { error: error.message },
+      updated_at: new Date().toISOString()
+    });
     throw error;
   }
 }

@@ -27,8 +27,18 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  // refreshing the auth token
-  await supabase.auth.getUser()
+  // refreshing the auth token and checking access
+  const { data: { user } } = await supabase.auth.getUser();
+
+  // Protect all routes except /login and /api public webhooks
+  const isPublicRoute = request.nextUrl.pathname.startsWith('/login') || 
+                        request.nextUrl.pathname.startsWith('/api/');
+  
+  if (!user && !isPublicRoute) {
+    const url = request.nextUrl.clone();
+    url.pathname = '/login';
+    return NextResponse.redirect(url);
+  }
 
   return supabaseResponse
 }

@@ -19,8 +19,8 @@ export async function checkSpendingGuardrails(
     return { safe: false, reason: 'Campaign not found or database error. Fail-closed.' };
   }
 
-  // 2. Fail-Closed: Never increase if status is uncertain/error
-  if (['draft', 'completed', 'paused'].includes(campaign.status)) {
+  // 2. Fail-Closed: Never increase if status is not strictly active
+  if (campaign.status !== 'active') {
     return { safe: false, reason: `Cannot increase spend for campaign in status: ${campaign.status}` };
   }
 
@@ -30,7 +30,7 @@ export async function checkSpendingGuardrails(
     .select('status')
     .in('provider', ['meta', 'google']);
 
-  if (intError || integrations.some(i => i.status !== 'connected')) {
+  if (intError || integrations.some((i: any) => i.status !== 'connected')) {
     return { safe: false, reason: 'One or more ad integrations are disconnected or in error. Fail-closed.' };
   }
 
