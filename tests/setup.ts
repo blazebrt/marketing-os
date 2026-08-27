@@ -40,6 +40,16 @@ for (const [key, value] of Object.entries(TEST_ENV_DEFAULTS)) {
   if (!process.env[key]) process.env[key] = value;
 }
 
+// HARD SAFETY GUARD (model provider)
+// A real GEMINI_API_KEY in .env.local must never be used by the test suite:
+// that would spend real money and send real requests to Google. Tests that
+// exercise generation point the SDK at a local stub via GEMINI_BASE_URL, so
+// the key value is irrelevant to them. Overriding unconditionally means a test
+// that forgets the stub fails against an unusable key instead of billing you.
+if (process.env.GEMINI_API_KEY) {
+  process.env.GEMINI_API_KEY = 'test-key-not-a-real-credential';
+}
+
 // HARD SAFETY GUARD
 // Ensure tests NEVER connect to a production/remote Supabase environment.
 
