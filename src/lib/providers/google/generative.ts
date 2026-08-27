@@ -1,9 +1,16 @@
 import { createClient } from '@/lib/supabase/server';
 import { v4 as uuidv4 } from 'uuid';
 import { GoogleCreativeItem } from './types';
-import { validateCreativePayload } from './validation';
+import {
+  validateCreativePayload,
+  validateStoredItems,
+  normalizeCreativeText,
+  type CreativeItemType,
+} from './validation';
 import { AppError, ERROR_CODES, logSafeError } from '@/lib/errors';
-import { LLM_PRIVACY } from '@/lib/privacy/llm';
+import { buildLlmCampaignContext } from '@/lib/privacy/llm';
+import { generateAdCopy } from '@/lib/llm/gemini';
+import { repairAdCopy, meetsTargetCounts, describeShortfalls, type RepairedAdCopy } from './copyRepair';
 
 function convertToCreativeItems(strings: string[], matchType?: 'EXACT' | 'PHRASE'): GoogleCreativeItem[] {
   return strings.map((s) => ({
@@ -17,21 +24,43 @@ function convertToCreativeItems(strings: string[], matchType?: 'EXACT' | 'PHRASE
   }));
 }
 
-function mockGeneratePayload(service: string, offer: string) {
-  // Local mock only. See LLM_PRIVACY — no provider call, no secrets.
-  void LLM_PRIVACY;
-  return {
-    headlines: [
-      `Buy ${service}`.substring(0, 30),
-      `${offer} offer`.substring(0, 30),
-      `Get ${service} today`.substring(0, 30),
-    ],
-    descriptions: [
-      `Sign up for ${service} and get ${offer} now.`.substring(0, 90),
-      `Best ${service} with ${offer} guaranteed.`.substring(0, 90),
-    ],
-    keywords: [`${service}`.substring(0, 80), `${service} deal`.substring(0, 80)],
-  };
+const MAX_GENERATION_ATTEMPTS = 3;
+
+/**
+ * Asks the model for ad copy, repairs what it returns, and only accepts a set
+ * that passes the unchanged validation in validation.ts. Falls back to nothing:
+ * if every attempt fails validation the caller gets an error and no creative is
+ * written, so an invalid creative can never reach the database.
+ */
+async function generateValidatedCopy(campaign: Record<string, unknown>): Promise<RepairedAdCopy> {
+  // Only the allow-listed campaign description fields leave the app.
+  const context = buildLlmCampaignContext(campaign);
+
+  let feedback: string[] | undefined;
+  let lastErrors: string[] = [];
+
+  for (let attempt = 1; attempt <= MAX_GENERATION_ATTEMPTS; attempt += 1) {
+    const raw = await generateAdCopy(context, feedback);
+    const repaired = repairAdCopy(raw);
+
+    const validation = validateCreativePayload({
+      headlines: repaired.headlines,
+      descriptions: repaired.descriptions,
+      keywords: repaired.keywords.map((k) => k.text),
+    });
+
+    const shortfalls = describeShortfalls(repaired);
+
+    if (validation.valid && (meetsTargetCounts(repaired) || attempt === MAX_GENERATION_ATTEMPTS)) {
+      return repaired;
+    }
+
+    lastErrors = validation.valid ? shortfalls : validation.errors;
+    feedback = lastErrors.slice(0, 10);
+  }
+
+  logSafeError('generateValidatedCopy', new Error(`VALIDATION_FAILED: ${lastErrors.length} unresolved`));
+  throw new AppError(ERROR_CODES.LLM_INVALID_OUTPUT, 502);
 }
 
 /**
@@ -84,15 +113,19 @@ export async function generateAndSaveGoogleCreatives(campaignId: string) {
     }
   }
 
-  const payload = mockGeneratePayload(String(campaign.service || ''), String(campaign.offer || ''));
-  const validation = validateCreativePayload(payload);
-  if (!validation.valid) {
-    throw new AppError(ERROR_CODES.VALIDATION_FAILED, 400);
-  }
+  const copy = await generateValidatedCopy(campaign);
 
-  const headlines = convertToCreativeItems(payload.headlines);
-  const descriptions = convertToCreativeItems(payload.descriptions);
-  const keywords = convertToCreativeItems(payload.keywords, 'EXACT');
+  const headlines = convertToCreativeItems(copy.headlines);
+  const descriptions = convertToCreativeItems(copy.descriptions);
+  const keywords = copy.keywords.map((k) => ({
+    id: uuidv4(),
+    original_value: k.text,
+    current_value: k.text,
+    ai_generated: true,
+    owner_approved: null,
+    rejected: false,
+    match_type: k.match_type,
+  }));
   const creativeId = campaign.creative_id || uuidv4();
 
   try {
@@ -168,4 +201,119 @@ export async function generateAndSaveGoogleCreatives(campaignId: string) {
     if (err instanceof AppError) throw err;
     throw new AppError(ERROR_CODES.GENERATION_FAILED, 500);
   }
+}
+
+/**
+ * Regenerates a single item with a fresh suggestion from the model.
+ *
+ * Goes through the same generation lock and rate limiter as a full generation,
+ * and produces a suggestion that is unapproved like any other generated copy.
+ * Approved items are never overwritten.
+ */
+export async function regenerateSingleItem(
+  campaignId: string,
+  itemType: CreativeItemType,
+  itemId: string
+): Promise<{ creativeId: string; value: string }> {
+  const supabase = await createClient();
+  const { data: authData, error: authError } = await supabase.auth.getUser();
+  if (authError || !authData?.user) {
+    throw new AppError(ERROR_CODES.UNAUTHORIZED, 401);
+  }
+  const ownerId = authData.user.id;
+
+  const { data: campaign, error: cErr } = await supabase
+    .from('unified_campaigns')
+    .select('*')
+    .eq('id', campaignId)
+    .eq('owner_id', ownerId)
+    .single();
+  if (cErr || !campaign || !campaign.creative_id) {
+    throw new AppError(ERROR_CODES.UNAUTHORIZED, 401);
+  }
+  if (campaign.status === 'READY_TO_DEPLOY' || campaign.status === 'ACTIVE') {
+    throw new AppError(ERROR_CODES.CREATIVE_LOCKED, 409);
+  }
+
+  const creativeId = campaign.creative_id as string;
+
+  const { data: creativeGoogle } = await supabase
+    .from('creatives_google')
+    .select('*')
+    .eq('creative_id', creativeId)
+    .eq('owner_id', ownerId)
+    .single();
+  if (!creativeGoogle) throw new AppError(ERROR_CODES.UNAUTHORIZED, 401);
+
+  const items: GoogleCreativeItem[] = Array.isArray(creativeGoogle[itemType]) ? [...creativeGoogle[itemType]] : [];
+  const index = items.findIndex((i) => i.id === itemId);
+  if (index === -1) throw new AppError(ERROR_CODES.VALIDATION_FAILED, 400);
+  if (items[index].owner_approved === true) throw new AppError(ERROR_CODES.CREATIVE_LOCKED, 409);
+
+  // Same lock and rate limiter as a full generation.
+  const { data: lock, error: lockErr } = await supabase.rpc('rpc_acquire_generation_lock', {
+    p_campaign_id: campaignId,
+  });
+  if (lockErr || !lock?.success) {
+    const msg = lockErr?.message || '';
+    if (msg.includes('RATE_LIMITED')) throw new AppError(ERROR_CODES.RATE_LIMITED, 429);
+    if (msg.includes('CREATIVE_LOCKED')) throw new AppError(ERROR_CODES.CREATIVE_LOCKED, 409);
+    if (msg.includes('UNAUTHORIZED')) throw new AppError(ERROR_CODES.UNAUTHORIZED, 401);
+    throw new AppError(ERROR_CODES.GENERATION_FAILED, 500);
+  }
+
+  const copy = await generateValidatedCopy(campaign);
+
+  // Take the first suggestion that is not already used by another item.
+  const taken = new Set(
+    items.filter((_, i) => i !== index).map((i) => normalizeCreativeText(i.current_value))
+  );
+  const candidates =
+    itemType === 'headlines'
+      ? copy.headlines.map((text) => ({ text, match_type: undefined as 'EXACT' | 'PHRASE' | undefined }))
+      : itemType === 'descriptions'
+        ? copy.descriptions.map((text) => ({ text, match_type: undefined as 'EXACT' | 'PHRASE' | undefined }))
+        : copy.keywords.map((k) => ({ text: k.text, match_type: k.match_type as 'EXACT' | 'PHRASE' | undefined }));
+
+  const chosen = candidates.find((c) => !taken.has(normalizeCreativeText(c.text)));
+  if (!chosen) throw new AppError(ERROR_CODES.LLM_INVALID_OUTPUT, 502);
+
+  items[index] = {
+    ...items[index],
+    original_value: chosen.text,
+    current_value: chosen.text,
+    ai_generated: true,
+    owner_approved: null,
+    rejected: false,
+    approved_at: null,
+    match_type: itemType === 'keywords' ? chosen.match_type : items[index].match_type,
+  };
+
+  // The whole list must still be valid before anything is written.
+  const stored = validateStoredItems(items, itemType);
+  if (!stored.valid) throw new AppError(ERROR_CODES.VALIDATION_FAILED, 400);
+
+  const expectedVersion = creativeGoogle.item_version ?? 1;
+  const { data: updated, error: uErr } = await supabase
+    .from('creatives_google')
+    .update({ [itemType]: items, item_version: expectedVersion + 1, last_generated_at: new Date().toISOString() })
+    .eq('creative_id', creativeId)
+    .eq('owner_id', ownerId)
+    .eq('item_version', expectedVersion)
+    .select('creative_id');
+
+  if (uErr) {
+    logSafeError('regenerateSingleItem', uErr);
+    throw new AppError(ERROR_CODES.GENERATION_FAILED, 500);
+  }
+  if (!updated || updated.length === 0) throw new AppError(ERROR_CODES.CONFLICT, 409);
+
+  await supabase
+    .from('creatives')
+    .update({ status: 'GENERATED', generation_lock_until: null })
+    .eq('id', creativeId)
+    .eq('owner_id', ownerId)
+    .neq('status', 'APPROVED');
+
+  return { creativeId, value: chosen.text };
 }

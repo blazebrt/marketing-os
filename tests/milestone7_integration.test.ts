@@ -2,6 +2,7 @@ import './setup';
 import crypto from 'crypto';
 import { __setMockCreateClient } from '../src/lib/supabase/server';
 import { createM7Database, setAuthUid, createPgLiteSupabase } from './helpers/m7Harness';
+import { startStubGemini } from './helpers/stubGemini';
 import { generateAndSaveGoogleCreatives } from '../src/lib/providers/google/generative';
 import { updateGoogleCreativeItem } from '../src/app/campaigns/[id]/google/actions';
 import { POST as generatePOST } from '../src/app/api/campaigns/[id]/generate/route';
@@ -69,6 +70,9 @@ async function seedCampaign(db: any, ownerId: string, overrides: Record<string, 
 }
 
 async function run() {
+  // The generator calls a real model with no fallback, so give it one to answer.
+  const stubGemini = await startStubGemini();
+
   console.log('--- M7 INTEGRATION TESTS ---\n');
 
   {
@@ -343,6 +347,8 @@ async function run() {
     params: Promise.resolve({ id: campA }),
   });
   assert(apiOk.status === 429 || apiOk.status === 409 || apiOk.status === 200, 'generate API executes with auth');
+
+  await stubGemini.close();
 
   console.log(`\n--- M7 INTEGRATION SUMMARY: ${pass} PASS, ${fail} FAIL ---`);
   if (fail > 0) process.exit(1);

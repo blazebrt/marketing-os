@@ -18,7 +18,9 @@ export default function NewCampaignWizard() {
     duration_days: '30',
     channels: [] as string[],
     destination_type: '' as '' | 'WEBSITE' | 'WHATSAPP' | 'PHONE',
-    landing_url: ''
+    landing_url: '',
+    target_audience: '',
+    location: ''
   });
 
   const update = (key: string, val: any) => setForm(prev => ({ ...prev, [key]: val }));
@@ -36,6 +38,8 @@ export default function NewCampaignWizard() {
         channels: form.channels,
         destination_type: form.destination_type,
         landing_url: form.destination_type === 'WEBSITE' ? form.landing_url : null,
+        target_audience: form.target_audience || null,
+        location: form.location || null,
         creative_id: null
       };
 
@@ -159,7 +163,7 @@ export default function NewCampaignWizard() {
               ['WHATSAPP', 'WhatsApp'],
               ['PHONE', 'Phone'],
             ] as const).map(([type, label]) => (
-              <button key={type} onClick={() => { update('destination_type', type); setStep(type === 'WEBSITE' ? 5.5 : 6); }}
+              <button key={type} onClick={() => { update('destination_type', type); setStep(type === 'WEBSITE' ? 5.5 : 5.7); }}
                       className="w-full text-left p-4 border rounded hover:border-black transition">
                 {label}
               </button>
@@ -174,8 +178,45 @@ export default function NewCampaignWizard() {
           <p className="text-sm text-gray-600 mb-4">Must be a public HTTPS URL. Private, localhost, and cloud metadata addresses are rejected.</p>
           <input type="url" value={form.landing_url} onChange={e => update('landing_url', e.target.value)}
                  className="w-full border p-2 rounded" placeholder="https://www.example.com" />
-          <button onClick={() => form.landing_url.startsWith('https://') && setStep(6)}
+          <button onClick={() => form.landing_url.startsWith('https://') && setStep(5.7)}
                   className="w-full bg-black text-white p-3 rounded mt-4">Next</button>
+        </div>
+      )}
+
+      {step === 5.7 && (
+        <div className="animate-in fade-in slide-in-from-bottom-4">
+          <h1 className="text-3xl font-bold mb-6">Who is this for, and where?</h1>
+          <p className="text-sm text-gray-600 mb-4">
+            We use this to write the ad copy. The more specific the area, the better the ads read to
+            nearby customers. Both are optional, but ads perform better with them.
+          </p>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium">Who is the campaign aimed at?</label>
+              <input type="text" value={form.target_audience} maxLength={200}
+                     onChange={e => update('target_audience', e.target.value)}
+                     className="w-full border p-2 rounded mt-1"
+                     placeholder="e.g. Brides-to-be, 22-32, planning a winter wedding" />
+              <div className="flex flex-wrap gap-2 mt-2">
+                {['Brides-to-be', 'Working professionals', 'College students', 'Mothers with young children'].map(a => (
+                  <button key={a} type="button" onClick={() => update('target_audience', a)}
+                          className="text-xs border rounded-full px-3 py-1 hover:border-black transition">
+                    {a}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="text-sm font-medium">Which area should the ads target?</label>
+              <input type="text" value={form.location} maxLength={200}
+                     onChange={e => update('location', e.target.value)}
+                     className="w-full border p-2 rounded mt-1"
+                     placeholder="e.g. Rajajipuram, Lucknow" />
+            </div>
+            <button onClick={() => setStep(6)} className="w-full bg-black text-white p-3 rounded mt-4">
+              Next
+            </button>
+          </div>
         </div>
       )}
 
@@ -209,6 +250,14 @@ export default function NewCampaignWizard() {
                 <span className="font-medium">{form.landing_url}</span>
               </div>
             )}
+            <div className="flex justify-between border-b pb-2">
+              <span className="text-gray-500">Audience</span>
+              <span className="font-medium">{form.target_audience || 'Not specified'}</span>
+            </div>
+            <div className="flex justify-between border-b pb-2">
+              <span className="text-gray-500">Area</span>
+              <span className="font-medium">{form.location || 'Not specified'}</span>
+            </div>
             <div className="flex justify-between">
               <span className="text-gray-500">Creative</span>
               <span className="font-medium text-red-600">No creative selected (Required before approval)</span>

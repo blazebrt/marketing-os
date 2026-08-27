@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { generateCreativesAction } from '@/app/campaigns/actions';
+import { ownerMessage } from '@/lib/errorMessages';
 
 export function GenerateCreativesButton({ campaignId }: { campaignId: string }) {
   const router = useRouter();
@@ -19,7 +20,7 @@ export function GenerateCreativesButton({ campaignId }: { campaignId: string }) 
           startTransition(async () => {
             const result = await generateCreativesAction(campaignId);
             if (!result.ok) {
-              setError(result.code);
+              setError(ownerMessage(result.code));
               return;
             }
             router.push(`/campaigns/${campaignId}/google`);
@@ -28,9 +29,13 @@ export function GenerateCreativesButton({ campaignId }: { campaignId: string }) 
         }}
         className="bg-blue-600 text-white px-6 py-3 rounded-lg font-medium disabled:opacity-50"
       >
-        {pending ? 'Generating…' : 'Generate AI Creatives'}
+        {pending ? 'Writing ads…' : 'Generate AI Creatives'}
       </button>
-      {error && <p className="text-sm text-red-700">Generation failed ({error}). You can retry.</p>}
+      {error && (
+        <p className="max-w-prose rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

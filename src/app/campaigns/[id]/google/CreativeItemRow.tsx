@@ -1,9 +1,17 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { Bot, CheckCircle, XCircle, Edit2, Check, X, RefreshCw } from 'lucide-react';
+import { Bot, CheckCircle, XCircle, Edit2, Check, X, RefreshCw, Undo2 } from 'lucide-react';
 import { GoogleCreativeItem } from '@/lib/providers/google/types';
-import { updateGoogleCreativeItem } from './actions';
+import { GOOGLE_LIMITS } from '@/lib/providers/google/validation';
+import { ownerMessage } from '@/lib/errorMessages';
+import { updateGoogleCreativeItem, regenerateGoogleCreativeItem } from './actions';
+
+const LIMITS: Record<string, number> = {
+  headlines: GOOGLE_LIMITS.HEADLINE_MAX_LENGTH,
+  descriptions: GOOGLE_LIMITS.DESCRIPTION_MAX_LENGTH,
+  keywords: GOOGLE_LIMITS.KEYWORD_MAX_LENGTH,
+};
 
 export function CreativeItemRow({
   campaignId,
@@ -21,117 +29,180 @@ export function CreativeItemRow({
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  const handleAction = (action: 'approve' | 'reject' | 'edit' | 'regenerate' | 'replace') => {
+  const limit = LIMITS[itemType];
+  const overLimit = editValue.length > limit;
+  const pendingDecision = item.owner_approved !== true && !item.rejected;
+
+  const run = (fn: () => Promise<unknown>) => {
     startTransition(async () => {
       setError(null);
       try {
-        await updateGoogleCreativeItem(
-          campaignId,
-          creativeId,
-          itemType,
-          item.id,
-          action,
-          action === 'edit' || action === 'replace' ? editValue : undefined
-        );
+        await fn();
         setIsEditing(false);
-      } catch {
-        setError('VALIDATION_FAILED');
+      } catch (e) {
+        const code = e instanceof Error ? e.message : undefined;
+        setError(ownerMessage(code));
       }
     });
   };
 
+  const handleAction = (action: 'approve' | 'reject' | 'edit' | 'regenerate' | 'replace') =>
+    run(() =>
+      updateGoogleCreativeItem(
+        campaignId,
+        creativeId,
+        itemType,
+        item.id,
+        action,
+        action === 'edit' || action === 'replace' ? editValue : undefined
+      )
+    );
+
+  const handleRegenerate = () =>
+    run(async () => {
+      const result = await regenerateGoogleCreativeItem(campaignId, itemType, item.id);
+      if (!result.ok) throw new Error(result.code);
+    });
+
+  const border = item.rejected
+    ? 'bg-red-50 border-red-200'
+    : item.owner_approved === true
+      ? 'bg-green-50 border-green-200'
+      : 'bg-amber-50 border-amber-200';
+
   return (
-    <div className={`flex flex-col sm:flex-row items-start sm:items-center justify-between p-3 rounded border ${item.rejected ? 'bg-red-50 border-red-100' : 'bg-slate-50'}`}>
-      <div className="flex-1 min-w-0 pr-4">
+    <div className={`flex flex-col gap-3 rounded border p-3 sm:flex-row sm:items-center sm:justify-between ${border}`}>
+      <div className="min-w-0 flex-1 sm:pr-4">
         {isEditing ? (
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              value={editValue}
-              onChange={(e) => setEditValue(e.target.value)}
-              className="flex-1 px-2 py-1 text-sm border rounded"
-              autoFocus
-            />
-            <button onClick={() => handleAction(item.owner_approved ? 'replace' : 'edit')} disabled={isPending} className="p-1 text-green-600 hover:bg-green-50 rounded">
-              <Check className="w-4 h-4" />
-            </button>
-            <button onClick={() => { setIsEditing(false); setEditValue(item.current_value); }} disabled={isPending} className="p-1 text-slate-500 hover:bg-slate-200 rounded">
-              <X className="w-4 h-4" />
-            </button>
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                className={`flex-1 rounded border px-2 py-1 text-sm ${overLimit ? 'border-red-500' : ''}`}
+                autoFocus
+              />
+              <button
+                onClick={() => handleAction(item.owner_approved ? 'replace' : 'edit')}
+                disabled={isPending || overLimit || editValue.trim() === ''}
+                title="Save"
+                className="rounded p-1 text-green-700 hover:bg-green-100 disabled:opacity-40"
+              >
+                <Check className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => { setIsEditing(false); setEditValue(item.current_value); setError(null); }}
+                disabled={isPending}
+                title="Cancel"
+                className="rounded p-1 text-slate-500 hover:bg-slate-200"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <span className={`text-xs ${overLimit ? 'font-medium text-red-600' : 'text-slate-500'}`}>
+              {editValue.length} / {limit} characters
+              {overLimit ? ' — too long for a Google ad' : ''}
+            </span>
           </div>
         ) : (
           <div className="flex flex-wrap items-center gap-2">
-            <span className={`font-medium ${item.rejected ? 'text-red-800 line-through' : ''}`}>{item.current_value}</span>
+            <span className={`font-medium ${item.rejected ? 'text-red-800 line-through' : ''}`}>
+              {item.current_value}
+            </span>
+            <span className="text-xs text-slate-500">{item.current_value.length}/{limit}</span>
             {item.ai_generated && (
-              <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full flex items-center gap-1">
-                <Bot className="w-3 h-3" /> AI
+              <span className="flex items-center gap-1 rounded-full bg-blue-100 px-2 py-1 text-xs text-blue-700">
+                <Bot className="h-3 w-3" /> AI
               </span>
             )}
             {item.match_type && (
-              <span className="text-xs bg-slate-200 text-slate-700 px-2 py-1 rounded-full">
-                {item.match_type}
-              </span>
+              <span className="rounded-full bg-slate-200 px-2 py-1 text-xs text-slate-700">{item.match_type}</span>
             )}
             {item.current_value !== item.original_value && (
-              <span className="text-xs text-slate-500 italic block mt-1 w-full">
+              <span className="mt-1 block w-full text-xs italic text-slate-500">
                 Original: {item.original_value}
               </span>
             )}
           </div>
         )}
-        {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
+        {error && <p className="mt-1 text-xs text-red-700">{error}</p>}
       </div>
 
       {!isEditing && (
-        <div className="flex items-center gap-2 mt-3 sm:mt-0">
-          {item.owner_approved ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {item.owner_approved === true ? (
             <>
-              <span className="flex items-center gap-1 text-sm text-green-600 font-medium px-2 py-1">
-                <CheckCircle className="w-4 h-4" /> Approved
+              <span className="flex items-center gap-1 px-2 py-1 text-sm font-medium text-green-700">
+                <CheckCircle className="h-4 w-4" /> Approved
               </span>
               <button
                 onClick={() => setIsEditing(true)}
                 disabled={isPending}
-                className="px-3 py-1 text-xs font-medium bg-slate-200 text-slate-700 rounded"
+                className="rounded bg-slate-200 px-3 py-1 text-xs font-medium text-slate-700 disabled:opacity-50"
               >
-                Replace (requires re-approval)
+                Replace (needs re-approval)
               </button>
             </>
           ) : item.rejected ? (
             <>
-              <span className="flex items-center gap-1 text-sm text-red-600 font-medium px-2 py-1">
-                <XCircle className="w-4 h-4" /> Rejected
+              <span className="flex items-center gap-1 px-2 py-1 text-sm font-medium text-red-700">
+                <XCircle className="h-4 w-4" /> Rejected
               </span>
+              <button
+                onClick={handleRegenerate}
+                disabled={isPending}
+                title="Ask the AI for new wording"
+                className="flex items-center gap-1 rounded bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700 hover:bg-blue-200 disabled:opacity-50"
+              >
+                <RefreshCw className={`h-3 w-3 ${isPending ? 'animate-spin' : ''}`} />
+                {isPending ? 'Writing…' : 'Regenerate'}
+              </button>
               <button
                 onClick={() => handleAction('regenerate')}
                 disabled={isPending}
-                className="px-3 py-1 text-xs font-medium bg-blue-100 text-blue-700 rounded flex items-center gap-1"
+                title="Put back the original AI wording"
+                className="flex items-center gap-1 rounded bg-slate-200 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-300 disabled:opacity-50"
               >
-                <RefreshCw className="w-3 h-3" /> Regenerate
+                <Undo2 className="h-3 w-3" /> Restore
               </button>
             </>
           ) : (
             <>
+              {pendingDecision && (
+                <span className="rounded-full bg-amber-200 px-2 py-1 text-xs font-medium text-amber-900">
+                  Awaiting decision
+                </span>
+              )}
               <button
                 onClick={() => handleAction('approve')}
                 disabled={isPending}
-                className="px-3 py-1 text-xs font-medium bg-green-100 text-green-700 rounded hover:bg-green-200 disabled:opacity-50"
+                className="rounded bg-green-100 px-3 py-1 text-xs font-medium text-green-700 hover:bg-green-200 disabled:opacity-50"
               >
                 Approve
               </button>
               <button
                 onClick={() => handleAction('reject')}
                 disabled={isPending}
-                className="px-3 py-1 text-xs font-medium bg-red-100 text-red-700 rounded hover:bg-red-200 disabled:opacity-50"
+                className="rounded bg-red-100 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-200 disabled:opacity-50"
               >
                 Reject
               </button>
               <button
                 onClick={() => setIsEditing(true)}
                 disabled={isPending}
-                className="px-3 py-1 text-xs font-medium bg-slate-200 text-slate-700 rounded hover:bg-slate-300 disabled:opacity-50 flex items-center gap-1"
+                className="flex items-center gap-1 rounded bg-slate-200 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-300 disabled:opacity-50"
               >
-                <Edit2 className="w-3 h-3" /> Edit
+                <Edit2 className="h-3 w-3" /> Edit
+              </button>
+              <button
+                onClick={handleRegenerate}
+                disabled={isPending}
+                title="Ask the AI for new wording"
+                className="flex items-center gap-1 rounded bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700 hover:bg-blue-200 disabled:opacity-50"
+              >
+                <RefreshCw className={`h-3 w-3 ${isPending ? 'animate-spin' : ''}`} />
+                {isPending ? 'Writing…' : 'Regenerate'}
               </button>
             </>
           )}

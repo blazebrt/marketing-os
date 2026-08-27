@@ -12,10 +12,11 @@ import {
   validateStoredItems,
   googleCreativeApprovalErrors,
 } from '@/lib/providers/google/validation';
-import { AppError, ERROR_CODES, logSafeError } from '@/lib/errors';
+import { AppError, ERROR_CODES, logSafeError, toSafeError } from '@/lib/errors';
 import { deployGoogleCampaign } from '@/lib/providers/google/deployment';
 import { reconcileGoogleDeployment } from '@/lib/providers/google/reconciliation';
 import { googleAdsDestinationRejection, parseDestinationType } from '@/lib/campaigns/destination';
+import { regenerateSingleItem } from '@/lib/providers/google/generative';
 
 function safeRevalidate(path: string) {
   try {
@@ -118,6 +119,8 @@ export async function updateGoogleCreativeItem(
     item.rejected = true;
     item.approved_at = new Date().toISOString();
   } else if (action === 'regenerate') {
+    // Local reset: restore this rejected item to its original AI wording.
+    // Asking the model for NEW wording is regenerateGoogleCreativeItem below.
     if (item.owner_approved === true) {
       throw new AppError(ERROR_CODES.CREATIVE_LOCKED, 409);
     }
@@ -185,7 +188,7 @@ export async function updateGoogleCreativeItem(
       : action === 'reject'
         ? 'GOOGLE_CREATIVE_REJECTED'
         : action === 'regenerate'
-          ? 'GOOGLE_CREATIVE_REGENERATED'
+          ? 'GOOGLE_CREATIVE_RESTORED'
           : 'GOOGLE_CREATIVE_REPLACED';
 
   await supabase.from('audit_logs').insert({
@@ -243,4 +246,40 @@ export async function reconcileDeployment(campaignId: string) {
   const result = await reconcileGoogleDeployment(campaignId, user.id);
   safeRevalidate(`/campaigns/${campaignId}/google`);
   return result;
+}
+
+/**
+ * Asks the model for a fresh suggestion for one item. Goes through the same
+ * generation lock and rate limiter as a full generation. Returns a result
+ * object rather than throwing, so the review screen can show a clear message.
+ */
+export async function regenerateGoogleCreativeItem(
+  campaignId: string,
+  itemType: string,
+  itemId: string
+) {
+  if (!isCreativeItemType(itemType)) {
+    return { ok: false as const, code: ERROR_CODES.VALIDATION_FAILED };
+  }
+  try {
+    const result = await regenerateSingleItem(campaignId, itemType, itemId);
+
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      await supabase.from('audit_logs').insert({
+        owner_id: user.id,
+        action: 'GOOGLE_CREATIVE_REGENERATED',
+        resource_type: 'creative_google',
+        resource_id: result.creativeId,
+        details: { itemType, itemId },
+      });
+    }
+
+    safeRevalidate(`/campaigns/${campaignId}/google`);
+    return { ok: true as const };
+  } catch (err) {
+    logSafeError('regenerateGoogleCreativeItem', err);
+    return { ok: false as const, code: toSafeError(err).code };
+  }
 }

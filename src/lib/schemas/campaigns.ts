@@ -10,6 +10,8 @@ export const CampaignIntentSchema = z.object({
   destination_type: z.enum(DESTINATION_TYPES),
   landing_url: z.string().optional().nullable(),
   destination: z.string().min(1).optional(),
+  target_audience: z.string().max(200, 'Target audience is too long').optional().nullable(),
+  location: z.string().max(200, 'Location is too long').optional().nullable(),
   channels: z.array(z.string()).min(1, 'At least one channel is required'),
   creative_id: z.string().optional(),
 });

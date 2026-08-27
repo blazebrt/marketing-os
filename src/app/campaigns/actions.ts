@@ -37,6 +37,8 @@ export async function saveDraftCampaign(payload: unknown) {
     destination: destinationType,
     destination_type: destinationType,
     landing_url: landingUrl,
+    target_audience: parsed.target_audience?.trim() || null,
+    location: parsed.location?.trim() || null,
     channels: parsed.channels,
     creative_id: null,
     status: 'DRAFT',

@@ -8,6 +8,9 @@ export const ERROR_CODES = {
   APPROVAL_FAILED: 'APPROVAL_FAILED',
   CREATIVE_LOCKED: 'CREATIVE_LOCKED',
   CONFLICT: 'CONFLICT',
+  LLM_NOT_CONFIGURED: 'LLM_NOT_CONFIGURED',
+  LLM_UNAVAILABLE: 'LLM_UNAVAILABLE',
+  LLM_INVALID_OUTPUT: 'LLM_INVALID_OUTPUT',
 } as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];
@@ -29,6 +32,15 @@ export function toSafeError(err: unknown): { code: ErrorCode; httpStatus: number
     return { code: err.code, httpStatus: err.httpStatus };
   }
   const message = err instanceof Error ? err.message : '';
+  if (message.includes('LLM_NOT_CONFIGURED')) {
+    return { code: ERROR_CODES.LLM_NOT_CONFIGURED, httpStatus: 503 };
+  }
+  if (message.includes('LLM_INVALID_OUTPUT')) {
+    return { code: ERROR_CODES.LLM_INVALID_OUTPUT, httpStatus: 502 };
+  }
+  if (message.includes('LLM_UNAVAILABLE') || message.includes('LLM_PRIVACY_VIOLATION')) {
+    return { code: ERROR_CODES.LLM_UNAVAILABLE, httpStatus: 502 };
+  }
   if (message.includes('RATE_LIMITED') || message.includes('Rate limit')) {
     return { code: ERROR_CODES.RATE_LIMITED, httpStatus: 429 };
   }
