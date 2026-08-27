@@ -95,6 +95,13 @@ async function runTests() {
     VALUES ($1, 'google', 'owner-a-state', now() + interval '10 minutes');
   `, [ownerA]);
 
+  await db.query(`
+    INSERT INTO public.campaign_daily_metrics
+      (owner_id, google_campaign_id, google_campaign_name, metric_date, cost_micros, cost_amount)
+    VALUES ($1, '900', 'Owner A campaign', '2026-08-20', 500000000, 500),
+           ($2, '901', 'Owner B campaign', '2026-08-20', 900000000, 900);
+  `, [ownerA, ownerB]);
+
   console.log('\n--- CAMPAIGNS ---');
 
   let res = await asUser('anon', null, `SELECT * FROM public.unified_campaigns;`);
@@ -159,6 +166,21 @@ async function runTests() {
 
   res = await asUser('authenticated', ownerA, `SELECT * FROM public.oauth_states;`);
   assert(res.data?.rows.length === 0, 'A signed-in owner cannot read OAuth state records.');
+
+  console.log('\n--- CAMPAIGN SPEND ---');
+
+  res = await asUser('anon', null, `SELECT * FROM public.campaign_daily_metrics;`);
+  assert(res.data?.rows.length === 0, 'Anonymous SELECT on campaign spend denied.');
+
+  res = await asUser('authenticated', ownerA, `SELECT * FROM public.campaign_daily_metrics;`);
+  assert(res.data?.rows.length === 1 && (res.data.rows[0] as any).owner_id === ownerA,
+    'Owner A sees exactly their own campaign spend.');
+
+  res = await asUser('authenticated', ownerB, `SELECT * FROM public.campaign_daily_metrics WHERE owner_id = '${ownerA}';`);
+  assert(res.data?.rows.length === 0, "Owner B cannot read Owner A's campaign spend.");
+
+  res = await asUser('authenticated', ownerB, `UPDATE public.campaign_daily_metrics SET cost_amount = 1 WHERE owner_id = '${ownerA}';`);
+  assert(res.data?.rowCount === 0, "Owner B cannot alter Owner A's campaign spend.");
 
   console.log('\n--- AUDIT LOG IMMUTABILITY ---');
 

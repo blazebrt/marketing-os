@@ -24,3 +24,8 @@ Initial stack target:
 - Supabase/Postgres
 - Meta Marketing API integration behind server-side routes
 - OpenAI only where AI generation/analysis is explicitly needed
+
+## Performance reporting
+
+Google Ads spend is pulled once a day and matched to leads. Setup steps for the
+scheduled refresh are in [docs/scheduled-refresh.md](docs/scheduled-refresh.md).
