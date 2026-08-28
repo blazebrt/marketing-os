@@ -59,9 +59,31 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
         </div>
       </div>
 
-      <p className="text-sm text-slate-600 mb-6">
-        Approved creatives are not live on Google Ads. Ads go live only after a successful test-account deployment that reconciles as MATCH.
-      </p>
+      {campaign.status !== 'READY_TO_DEPLOY' && campaign.status !== 'LIVE' && (
+        <p className="text-sm text-slate-600 mb-6">
+          Approving copy does not put anything on Google Ads. Nothing runs until you set the
+          campaign up in Google yourself.
+        </p>
+      )}
+
+      {(campaign.status === 'READY_TO_DEPLOY' || campaign.status === 'LIVE') && (
+        <div className={`mb-8 rounded-lg border p-5 ${campaign.status === 'LIVE' ? 'border-green-200 bg-green-50' : 'border-blue-200 bg-blue-50'}`}>
+          <h2 className="font-semibold">
+            {campaign.status === 'LIVE' ? 'This campaign is live in Google Ads' : 'Ready to set up in Google Ads'}
+          </h2>
+          <p className="mt-1 max-w-prose text-sm">
+            {campaign.status === 'LIVE'
+              ? 'Its performance is collected each night. Open the setup sheet to check the details or correct the campaign ID.'
+              : 'Everything has been approved. The setup sheet has every value you need to create this campaign in Google, ready to copy.'}
+          </p>
+          <a
+            href={`/campaigns/${id}/launch`}
+            className="mt-4 inline-block rounded-lg bg-black px-5 py-2.5 text-sm font-medium text-white"
+          >
+            {campaign.status === 'LIVE' ? 'Open setup sheet' : 'Open setup sheet'}
+          </a>
+        </div>
+      )}
 
       {(campaign.status === 'DRAFT' || campaign.status === 'PENDING_APPROVAL') && verification && (
         <>

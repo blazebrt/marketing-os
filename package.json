@@ -1,16 +1,20 @@
 {
-  "name": "temp-app",
+  "name": "marketing-os",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint src"
+    "lint": "eslint src",
+    "test": "node --import tsx --test tests/*.test.ts tests/*.test.js"
   },
   "dependencies": {
+    "@base-ui/react": "^1.7.0",
+    "@google/genai": "^2.19.0",
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.112.3",
+    "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "google-ads-api": "^24.1.0",
     "google-auth-library": "^11.0.2",
@@ -26,6 +30,7 @@
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.5",
     "@eslint/eslintrc": "^3.3.6",
+    "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
@@ -37,6 +42,7 @@
     "eslint-config-next": "16.3.0",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.1.1",
+    "tailwindcss": "^4.3.3",
     "tsx": "^4.23.12",
     "typescript": "^5",
     "typescript-eslint": "^8.67.0"

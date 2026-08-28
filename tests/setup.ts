@@ -1,3 +1,55 @@
+// TEST ENVIRONMENT BOOTSTRAP
+//
+// Two jobs, in this order:
+//   1. Supply deterministic placeholder configuration, so the suite runs on a
+//      clean checkout. Real secrets live in .env.local, which is gitignored and
+//      therefore absent on CI and on a fresh clone.
+//   2. Enforce the hard safety guard below, which is unchanged.
+
+import { config as loadDotenv } from 'dotenv';
+
+// Load real local configuration first, so a developer's .env.local always wins
+// over the placeholders below. Tests that call dotenv themselves afterwards are
+// then a harmless no-op. Missing file is fine -- dotenv reports, never throws.
+loadDotenv({ path: '.env.local' });
+
+// Only fills gaps: a value already supplied by .env.local or the real
+// environment is never overwritten, so the safety guard still sees it.
+const TEST_ENV_DEFAULTS: Record<string, string> = {
+  // Must decode to exactly 32 bytes. Obviously fake, test-only.
+  ENCRYPTION_KEY: Buffer.alloc(32, 'marketing-os-test-key').toString('base64'),
+
+  GOOGLE_CLIENT_ID: 'test-client-id',
+  GOOGLE_CLIENT_SECRET: 'test-client-secret',
+
+  GOOGLE_ADS_DEVELOPER_TOKEN: 'test-developer-token',
+  GOOGLE_ADS_TEST_CUSTOMER_ID: '123-456-7890',
+  GOOGLE_ADS_TEST_MANAGER_ID: '123-456-7890',
+};
+
+// Deliberately NOT defaulted:
+//   * GOOGLE_ADS_EXECUTION_MODE, GOOGLE_ADS_ALLOW_MUTATIONS and
+//     GOOGLE_ADS_DEPLOYMENT_CONFIRMATION are the kill switches guarding real
+//     Google Ads mutations. They must stay unset so the gate keeps failing
+//     closed; tests that need them set them explicitly.
+//   * The Supabase URL and keys. safety_guard.test.ts relies on the URL being
+//     absent so it falls back to a production hostname and proves the fetch
+//     interceptor below blocks it. Defaulting the URL would silently disarm
+//     that test.
+for (const [key, value] of Object.entries(TEST_ENV_DEFAULTS)) {
+  if (!process.env[key]) process.env[key] = value;
+}
+
+// HARD SAFETY GUARD (model provider)
+// A real GEMINI_API_KEY in .env.local must never be used by the test suite:
+// that would spend real money and send real requests to Google. Tests that
+// exercise generation point the SDK at a local stub via GEMINI_BASE_URL, so
+// the key value is irrelevant to them. Overriding unconditionally means a test
+// that forgets the stub fails against an unusable key instead of billing you.
+if (process.env.GEMINI_API_KEY) {
+  process.env.GEMINI_API_KEY = 'test-key-not-a-real-credential';
+}
+
 // HARD SAFETY GUARD
 // Ensure tests NEVER connect to a production/remote Supabase environment.
 

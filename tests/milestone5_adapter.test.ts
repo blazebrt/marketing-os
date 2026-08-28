@@ -3,7 +3,7 @@ dotenv.config({ path: '.env.local' });
 import './setup';
 import { PGlite } from '@electric-sql/pglite';
 import crypto from 'crypto';
-import { generateGoogleCreative } from '../src/lib/providers/google/ai';
+import { buildCreativeFixture } from './helpers/creativeFixtures';
 import { prepareGoogleDeployment } from '../src/lib/providers/google/adapter';
 import { MockGoogleAccountContextProvider } from '../src/lib/providers/google/mock-context';
 import { GoogleAdsReadOnlyContextProvider } from '../src/lib/providers/google/real-context';
@@ -191,7 +191,7 @@ async function runTests() {
   await db.query("INSERT INTO public.integrations (owner_id, provider, status) VALUES ($1, 'google', 'connected')", [ownerA]);
   
   // AI Generate test
-  const gen = generateGoogleCreative({ service: 'Bridal Makeup', offer: '20% Off' });
+  const gen = buildCreativeFixture({ service: 'Bridal Makeup', offer: '20% Off' });
   const campA = crypto.randomUUID();
   await db.query("INSERT INTO public.unified_campaigns (id, owner_id, channels, creative_id, status) VALUES ($1, $2, $3, $4, 'READY_TO_DEPLOY')", [campA, ownerA, ['google'], creativeA]);
   await db.query("INSERT INTO public.channel_deployments (campaign_id, owner_id, provider, status) VALUES ($1, $2, 'google', 'PENDING')", [campA, ownerA]);

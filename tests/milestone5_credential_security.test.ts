@@ -6,7 +6,7 @@ import crypto from 'crypto';
 import { GoogleAdsReadOnlyContextProvider } from '../src/lib/providers/google/real-context';
 import { MockGoogleAccountContextProvider } from '../src/lib/providers/google/mock-context';
 import { prepareGoogleDeployment } from '../src/lib/providers/google/adapter';
-import { generateGoogleCreative } from '../src/lib/providers/google/ai';
+import { buildCreativeFixture } from './helpers/creativeFixtures';
 import { encryptCredential, decryptCredential } from '../src/lib/crypto';
 
 async function runTests() {
@@ -447,7 +447,7 @@ async function runTests() {
     await db.query('INSERT INTO public.creatives (id, owner_id) VALUES ($1, $2)', [creativeC, ownerA]);
     await db.query("INSERT INTO public.integrations (owner_id, provider, status) VALUES ($1, 'google', 'connected') ON CONFLICT DO NOTHING", [ownerA]);
 
-    const gen = generateGoogleCreative({ service: 'Bridal Makeup', offer: '20% Off' });
+    const gen = buildCreativeFixture({ service: 'Bridal Makeup', offer: '20% Off' });
     gen.keywords[0].owner_approved = true;
     gen.keywords[0].current_value = 'bridal makeup lucknow';
     gen.headlines[0].owner_approved = true;

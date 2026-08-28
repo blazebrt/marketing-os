@@ -1,6 +1,15 @@
-﻿node_modules/
-.next/
+node_modules/
 node_modules
+.next/
 .next
+
+# Build artifacts
+tsconfig.tsbuildinfo
+
+# Secrets
 .owner_credentials.txt
 .env.local
+
+# Scratch output written by the test suite
+differences.log
+tests_output.txt

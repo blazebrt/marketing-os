@@ -603,7 +603,7 @@ async function runTests() {
     process.env.GOOGLE_CLIENT_ID = 'client';
     process.env.GOOGLE_CLIENT_SECRET = 'secret';
     process.env.ENCRYPTION_KEY = 'key';
-    process.env.SUPABASE_URL = 'url';
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'url';
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'key';
   };
 

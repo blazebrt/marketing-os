@@ -5,6 +5,7 @@ import { Bot } from 'lucide-react';
 import { CreativeItemRow } from './CreativeItemRow';
 import { GoogleAdsReadOnlyContextProvider } from '@/lib/providers/google/real-context';
 import { DeploymentPanel } from './DeploymentPanel';
+import { ReviewProgress, countItems } from './ReviewProgress';
 
 export default async function GoogleReviewPage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -38,6 +39,12 @@ export default async function GoogleReviewPage(props: { params: Promise<{ id: st
   const headlines: GoogleCreativeItem[] = creativeGoogle?.headlines || [];
   const descriptions: GoogleCreativeItem[] = creativeGoogle?.descriptions || [];
   const keywords: GoogleCreativeItem[] = creativeGoogle?.keywords || [];
+
+  const sections = [
+    countItems('Headlines', headlines),
+    countItems('Descriptions', descriptions),
+    countItems('Keywords', keywords),
+  ];
 
   let strategyContext = null;
   let targetStateError = null;
@@ -88,6 +95,8 @@ export default async function GoogleReviewPage(props: { params: Promise<{ id: st
         ) : null}
       </div>
 
+      <ReviewProgress sections={sections} />
+
       <div className="space-y-6">
         <CreativeSection title="Headlines" items={headlines} campaignId={campaign.id} creativeId={campaign.creative_id} itemType="headlines" />
         <CreativeSection title="Descriptions" items={descriptions} campaignId={campaign.id} creativeId={campaign.creative_id} itemType="descriptions" />
@@ -128,14 +137,23 @@ function CreativeSection({
     return (
       <div className="bg-white p-6 rounded-lg border shadow-sm">
         <h2 className="text-xl font-semibold mb-4">{title}</h2>
-        <p className="text-muted-foreground text-sm">No items generated yet.</p>
+        <p className="text-muted-foreground text-sm">
+          No {title.toLowerCase()} written yet. Use Generate AI Creatives on the campaign page.
+        </p>
       </div>
     );
   }
 
+  const pending = items.filter((i) => i.owner_approved !== true && !i.rejected).length;
+
   return (
     <div className="bg-white p-6 rounded-lg border shadow-sm">
-      <h2 className="text-xl font-semibold mb-4">{title}</h2>
+      <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-xl font-semibold">{title}</h2>
+        <span className={`text-sm ${pending === 0 ? 'text-green-700' : 'text-amber-700 font-medium'}`}>
+          {pending === 0 ? 'All decided' : `${pending} awaiting decision`}
+        </span>
+      </div>
       <div className="space-y-3">
         {items.map((item) => (
           <CreativeItemRow 
