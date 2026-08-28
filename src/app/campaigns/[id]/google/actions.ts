@@ -75,7 +75,7 @@ export async function updateGoogleCreativeItem(
   if (campaign.creative_id !== creativeId) {
     throw new AppError(ERROR_CODES.UNAUTHORIZED, 401);
   }
-  if (campaign.status === 'READY_TO_DEPLOY' || campaign.status === 'ACTIVE') {
+  if (campaign.status === 'READY_TO_DEPLOY' || campaign.status === 'ACTIVE' || campaign.status === 'LIVE') {
     throw new AppError(ERROR_CODES.CREATIVE_LOCKED, 409);
   }
 
