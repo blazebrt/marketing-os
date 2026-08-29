@@ -1,14 +1,17 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
+import { ArrowRight, Sparkles } from 'lucide-react';
 import {
-  buildPerformance,
-  rankByCostPerPayingCustomer,
-  type SpendRow,
-  type LeadRow,
-  type CampaignPerformance,
+  buildPerformance, rankByCostPerPayingCustomer,
+  type SpendRow, type LeadRow, type CampaignPerformance,
 } from '@/lib/metrics/performance';
 import { formatMoney, formatCount, formatMultiple } from '@/lib/metrics/format';
+import { loadSalonContext } from '@/lib/salon/context';
+import { salonContextGaps } from '@/lib/salon/types';
+import { analysePerformance } from '@/lib/analysis/findings';
+import { RecommendationCard } from './recommendations/RecommendationCard';
+import type { StoredRecommendation } from '@/lib/analysis/recommendations';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,148 +20,150 @@ export default async function DashboardPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return redirect('/login');
 
-  const [{ data: spend }, { data: leads }, { data: campaigns }] = await Promise.all([
-    supabase
-      .from('campaign_daily_metrics')
-      .select('google_campaign_id, google_campaign_name, campaign_id, cost_amount, impressions, clicks, currency_code, metric_date')
-      .eq('owner_id', user.id),
-    supabase
-      .from('leads')
-      .select('id, status, revenue_amount, attributed_google_campaign_id, gclid, attribution_checked_at')
-      .eq('owner_id', user.id),
-    supabase.from('unified_campaigns').select('id, service').eq('owner_id', user.id),
-  ]);
+  const [{ data: spend }, { data: leads }, { data: campaigns }, salon, { data: recs }, { data: openPlans }] =
+    await Promise.all([
+      supabase.from('campaign_daily_metrics')
+        .select('google_campaign_id, google_campaign_name, campaign_id, cost_amount, impressions, clicks, currency_code, metric_date')
+        .eq('owner_id', user.id),
+      supabase.from('leads')
+        .select('id, status, revenue_amount, attributed_google_campaign_id, gclid, attribution_checked_at')
+        .eq('owner_id', user.id),
+      supabase.from('unified_campaigns').select('id, service, status').eq('owner_id', user.id),
+      loadSalonContext(user.id),
+      supabase.from('recommendations').select('*').eq('owner_id', user.id).eq('status', 'OPEN')
+        .order('created_at', { ascending: false }).limit(3),
+      supabase.from('marketing_plans').select('id').eq('owner_id', user.id).eq('status', 'DRAFT').limit(1),
+    ]);
 
-  const names = new Map<string, string>(
-    (campaigns || []).map((c: { id: string; service: string }) => [c.id, c.service])
-  );
+  const campaignRows = (campaigns || []) as { id: string; service: string; status: string }[];
+  const names = new Map<string, string>(campaignRows.map((c) => [c.id, c.service]));
   const { campaigns: rows, totals } = buildPerformance(
-    (spend || []) as SpendRow[],
-    (leads || []) as LeadRow[],
-    names
+    (spend || []) as SpendRow[], (leads || []) as LeadRow[], names
   );
-  const { best, worst, rankable } = rankByCostPerPayingCustomer(rows);
-  const nothingYet = (spend || []).length === 0 && (leads || []).length === 0;
+  const { best } = rankByCostPerPayingCustomer(rows);
+  const findings = analysePerformance(rows, totals);
+  const headline = findings.find((f) => f.kind === 'BEST_VALUE_CAMPAIGN') ?? findings[0];
+
+  const gaps = salonContextGaps(salon);
+  const hasPlanWaiting = (openPlans || []).length > 0;
+  const hasAnyCampaign = campaignRows.length > 0;
+  const recommendations = (recs || []) as StoredRecommendation[];
+
+  // The single most useful thing to do right now.
+  const nextStep =
+    gaps.length > 0
+      ? { href: '/salon', label: 'Tell Marketing OS about your salon', why: `Still needed: ${gaps.join(', ')}.` }
+      : hasPlanWaiting
+        ? { href: '/goals', label: 'Review the plan waiting for you', why: 'Marketing OS has proposed a campaign.' }
+        : !hasAnyCampaign
+          ? { href: '/goals', label: 'Set your first goal', why: 'Tell it what business result you want.' }
+          : recommendations.length > 0
+            ? { href: '/recommendations', label: 'See what to do next', why: `${recommendations.length} suggestion${recommendations.length === 1 ? '' : 's'} based on your results.` }
+            : { href: '/goals', label: 'Set another goal', why: 'Everything current is running.' };
 
   return (
-    <div className="mx-auto max-w-6xl p-8">
-      <div className="mb-6 flex flex-wrap items-baseline justify-between gap-3">
-        <h1 className="text-2xl font-bold">Marketing OS Dashboard</h1>
-        <Link href="/performance" className="text-sm font-medium text-blue-700 underline">
-          See every campaign
-        </Link>
-      </div>
+    <div className="mx-auto max-w-5xl p-8">
+      <h1 className="text-2xl font-bold">Your marketing</h1>
 
-      {nothingYet ? (
-        <div className="rounded-lg border bg-white p-10 text-center shadow-sm">
-          <h2 className="text-lg font-semibold">No results yet</h2>
-          <p className="mx-auto mt-2 max-w-prose text-sm text-muted-foreground">
-            Spend and leads appear here once a campaign is running and the nightly refresh has
-            pulled its first day of figures.
-          </p>
-          <Link href="/campaigns/new" className="mt-5 inline-block rounded bg-black px-4 py-2 text-sm text-white">
-            Create a campaign
-          </Link>
-        </div>
+      {totals.leads === 0 && totals.spend === null ? (
+        <FirstRun nextStep={nextStep} />
       ) : (
         <>
-          <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <Tile label="Total spend" value={formatMoney(totals.spend, totals.currency)} />
-            <Tile label="Leads received" value={formatCount(totals.leads)} />
+          <p className="mt-1 text-sm text-muted-foreground">Everything measured so far</p>
+
+          <section className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Tile label="Spent" value={formatMoney(totals.spend, totals.currency)} />
+            <Tile label="Enquiries" value={formatCount(totals.leads)} />
             <Tile label="Paying customers" value={formatCount(totals.paying)} />
-            <Tile
-              label="Revenue"
-              value={totals.revenue > 0 ? formatMoney(totals.revenue, totals.currency) : 'No data yet'}
-              tone={totals.revenue > 0 ? 'good' : 'plain'}
-            />
+            <Tile label="Revenue" tone={totals.revenue > 0 ? 'good' : 'plain'}
+              value={totals.revenue > 0 ? formatMoney(totals.revenue, totals.currency) : 'No data yet'} />
           </section>
 
           <section className="mt-3 grid gap-3 sm:grid-cols-3">
-            <Tile label="Cost per lead" value={formatMoney(totals.costPerLead, totals.currency)} small />
-            <Tile label="Cost per paying customer" value={formatMoney(totals.costPerPayingCustomer, totals.currency)} small />
-            <Tile label="Revenue for every rupee spent" value={formatMultiple(totals.returnOnSpend)} small />
+            <Tile small label="Cost per enquiry" value={formatMoney(totals.costPerLead, totals.currency)} />
+            <Tile small label="Cost per paying customer" value={formatMoney(totals.costPerPayingCustomer, totals.currency)} />
+            <Tile small label="Revenue per rupee spent" value={formatMultiple(totals.returnOnSpend)} />
           </section>
 
-          <section className="mt-8 grid gap-4 md:grid-cols-2">
-            <Highlight
-              title="Best value campaign"
-              subtitle="Cheapest paying customer"
-              campaign={best}
-              currency={totals.currency}
-              tone="good"
-              rankable={rankable}
-            />
-            <Highlight
-              title="Worst value campaign"
-              subtitle="Most expensive paying customer"
-              campaign={worst}
-              currency={totals.currency}
-              tone="bad"
-              rankable={rankable}
-            />
-          </section>
-
-          {totals.untraceableLeads > 0 && (
-            <p className="mt-6 max-w-prose rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-              <strong>{formatCount(totals.untraceableLeads)} leads could not be traced to a
-              campaign.</strong> They count towards your totals above, but no campaign gets credit
-              for them, so per-campaign figures understate performance.
-            </p>
+          {headline && (
+            <section className="mt-8 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+              <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                <Sparkles className="h-3.5 w-3.5" /> What Marketing OS sees
+              </p>
+              <h2 className="mt-2 text-lg font-semibold">{headline.title}</h2>
+              <dl className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm">
+                {headline.evidence.map((e) => (
+                  <div key={e.label} className="flex gap-1.5">
+                    <dt className="text-muted-foreground">{e.label}:</dt>
+                    <dd className="font-medium tabular-nums">{e.value}</dd>
+                  </div>
+                ))}
+              </dl>
+              {best && best.name !== headline.title && (
+                <p className="mt-3 text-sm text-muted-foreground">
+                  Best value so far: <span className="font-medium text-foreground">{best.name}</span> at{' '}
+                  {formatMoney(best.costPerPayingCustomer, totals.currency)} per paying customer.
+                </p>
+              )}
+            </section>
           )}
         </>
+      )}
+
+      <section className="mt-8 rounded-lg border border-slate-800 bg-slate-800 p-6 text-white shadow-sm">
+        <p className="text-xs font-semibold uppercase tracking-wider text-slate-300">Do this next</p>
+        <h2 className="mt-2 text-xl font-semibold">{nextStep.label}</h2>
+        <p className="mt-1 text-sm text-slate-300">{nextStep.why}</p>
+        <Link href={nextStep.href}
+          className="mt-4 inline-flex items-center gap-2 rounded-lg bg-white px-5 py-2.5 text-sm font-medium text-slate-900">
+          Go <ArrowRight className="h-4 w-4" />
+        </Link>
+      </section>
+
+      {recommendations.length > 0 && (
+        <section className="mt-8">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Suggestions from your results</h2>
+            <Link href="/recommendations" className="text-sm text-blue-700 underline">See all</Link>
+          </div>
+          <div className="space-y-4">
+            {recommendations.map((rec) => <RecommendationCard key={rec.id} rec={rec} />)}
+          </div>
+        </section>
+      )}
+
+      {totals.untraceableLeads > 0 && (
+        <p className="mt-8 max-w-prose rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <strong>{formatCount(totals.untraceableLeads)} enquiries could not be traced to a campaign.</strong>{' '}
+          They count in the totals above, but no campaign gets credit, so per-campaign figures
+          understate performance.
+        </p>
       )}
     </div>
   );
 }
 
-function Tile({ label, value, tone = 'plain', small = false }: { label: string; value: string; tone?: 'plain' | 'good'; small?: boolean }) {
+function FirstRun({ nextStep }: { nextStep: { href: string; label: string; why: string } }) {
+  return (
+    <div className="mt-6 rounded-lg border bg-white p-8 shadow-sm">
+      <h2 className="text-lg font-semibold">Nothing measured yet</h2>
+      <p className="mt-2 max-w-prose text-sm text-muted-foreground">
+        Marketing OS shows what your advertising actually produced — enquiries, customers and
+        revenue against what you spent. Once a campaign has run for a few days, this fills in.
+      </p>
+      <p className="mt-3 max-w-prose text-sm text-muted-foreground">{nextStep.why}</p>
+    </div>
+  );
+}
+
+function Tile({ label, value, tone = 'plain', small = false }: {
+  label: string; value: string; tone?: 'plain' | 'good'; small?: boolean;
+}) {
   return (
     <div className="rounded-lg border bg-white p-5 shadow-sm">
       <p className="text-sm text-muted-foreground">{label}</p>
       <p className={`mt-1 font-bold tabular-nums ${small ? 'text-xl' : 'text-2xl'} ${tone === 'good' ? 'text-green-700' : ''}`}>
         {value}
-      </p>
-    </div>
-  );
-}
-
-function Highlight({
-  title, subtitle, campaign, currency, tone, rankable,
-}: {
-  title: string;
-  subtitle: string;
-  campaign: CampaignPerformance | null;
-  currency: string;
-  tone: 'good' | 'bad';
-  rankable: number;
-}) {
-  const accent = tone === 'good' ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50';
-  const figure = tone === 'good' ? 'text-green-800' : 'text-red-800';
-
-  if (!campaign) {
-    return (
-      <div className="rounded-lg border bg-white p-5 shadow-sm">
-        <p className="font-semibold">{title}</p>
-        <p className="mt-2 text-sm text-muted-foreground">
-          {rankable === 0
-            ? 'No data yet. Ranking needs at least one campaign with both spend and a paying customer.'
-            : 'No data yet. Only one campaign can be ranked so far, so there is nothing to compare it against.'}
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div className={`rounded-lg border p-5 shadow-sm ${accent}`}>
-      <p className="font-semibold">{title}</p>
-      <p className="text-sm text-muted-foreground">{subtitle}</p>
-      <p className="mt-3 truncate text-lg font-medium">{campaign.name}</p>
-      <p className={`mt-1 text-2xl font-bold tabular-nums ${figure}`}>
-        {formatMoney(campaign.costPerPayingCustomer, currency)}
-      </p>
-      <p className="mt-2 text-xs text-muted-foreground">
-        {formatMoney(campaign.spend, currency)} spent · {formatCount(campaign.paid)} paying{' '}
-        {campaign.paid === 1 ? 'customer' : 'customers'}
       </p>
     </div>
   );

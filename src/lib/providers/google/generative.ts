@@ -9,7 +9,7 @@ import {
 } from './validation';
 import { AppError, ERROR_CODES, logSafeError } from '@/lib/errors';
 import { buildLlmCampaignContext } from '@/lib/privacy/llm';
-import { generateAdCopy } from '@/lib/llm/gemini';
+import { generateAdCopy, type CreativeStrategy } from '@/lib/llm/gemini';
 import { repairAdCopy, meetsTargetCounts, describeShortfalls, type RepairedAdCopy } from './copyRepair';
 
 function convertToCreativeItems(strings: string[], matchType?: 'EXACT' | 'PHRASE'): GoogleCreativeItem[] {
@@ -27,12 +27,59 @@ function convertToCreativeItems(strings: string[], matchType?: 'EXACT' | 'PHRASE
 const MAX_GENERATION_ATTEMPTS = 3;
 
 /**
+ * The owner-approved strategy this campaign came from, if any.
+ *
+ * Campaigns created by hand have no plan, and generation falls back to the
+ * campaign's own fields -- exactly as before. Nothing here can fail the
+ * generation; a missing plan simply means no angles.
+ */
+async function loadCampaignStrategy(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  campaignId: string,
+  ownerId: string
+): Promise<CreativeStrategy | undefined> {
+  try {
+    const { data } = await supabase
+      .from('marketing_plans')
+      .select('plan')
+      .eq('campaign_id', campaignId)
+      .eq('owner_id', ownerId)
+      .eq('status', 'CONVERTED')
+      .order('approved_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const plan = data?.plan as
+      | { messaging_strategy?: unknown; creative_angles?: unknown }
+      | undefined;
+    if (!plan) return undefined;
+
+    const angles = Array.isArray(plan.creative_angles)
+      ? (plan.creative_angles as { name?: unknown; description?: unknown }[])
+          .filter((a) => typeof a?.name === 'string' && typeof a?.description === 'string')
+          .map((a) => ({ name: String(a.name), description: String(a.description) }))
+      : [];
+
+    if (angles.length === 0) return undefined;
+    return {
+      messaging: typeof plan.messaging_strategy === 'string' ? plan.messaging_strategy : '',
+      angles,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Asks the model for ad copy, repairs what it returns, and only accepts a set
  * that passes the unchanged validation in validation.ts. Falls back to nothing:
  * if every attempt fails validation the caller gets an error and no creative is
  * written, so an invalid creative can never reach the database.
  */
-async function generateValidatedCopy(campaign: Record<string, unknown>): Promise<RepairedAdCopy> {
+async function generateValidatedCopy(
+  campaign: Record<string, unknown>,
+  strategy?: CreativeStrategy
+): Promise<RepairedAdCopy> {
   // Only the allow-listed campaign description fields leave the app.
   const context = buildLlmCampaignContext(campaign);
 
@@ -40,7 +87,7 @@ async function generateValidatedCopy(campaign: Record<string, unknown>): Promise
   let lastErrors: string[] = [];
 
   for (let attempt = 1; attempt <= MAX_GENERATION_ATTEMPTS; attempt += 1) {
-    const raw = await generateAdCopy(context, feedback);
+    const raw = await generateAdCopy(context, feedback, strategy);
     const repaired = repairAdCopy(raw);
 
     const validation = validateCreativePayload({
@@ -113,7 +160,8 @@ export async function generateAndSaveGoogleCreatives(campaignId: string) {
     }
   }
 
-  const copy = await generateValidatedCopy(campaign);
+  const strategy = await loadCampaignStrategy(supabase, campaignId, ownerId);
+  const copy = await generateValidatedCopy(campaign, strategy);
 
   const headlines = convertToCreativeItems(copy.headlines);
   const descriptions = convertToCreativeItems(copy.descriptions);
@@ -262,7 +310,8 @@ export async function regenerateSingleItem(
     throw new AppError(ERROR_CODES.GENERATION_FAILED, 500);
   }
 
-  const copy = await generateValidatedCopy(campaign);
+  const strategy = await loadCampaignStrategy(supabase, campaignId, ownerId);
+  const copy = await generateValidatedCopy(campaign, strategy);
 
   // Take the first suggestion that is not already used by another item.
   const taken = new Set(

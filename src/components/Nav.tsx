@@ -4,9 +4,13 @@ import { signOut } from '@/app/login/actions';
 
 const NAV_LINKS = [
   { href: '/', label: 'Dashboard' },
+  { href: '/goals', label: 'Set a goal' },
+  { href: '/recommendations', label: 'Next steps' },
   { href: '/performance', label: 'Performance' },
   { href: '/campaigns', label: 'Campaigns' },
   { href: '/leads', label: 'Leads' },
+  { href: '/assistant', label: 'Ask' },
+  { href: '/salon', label: 'Salon' },
   { href: '/integrations', label: 'Integrations' },
 ];
 

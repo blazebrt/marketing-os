@@ -7,6 +7,15 @@ import http from 'node:http';
  * fallback, so tests that exercise generation need something to answer. This
  * serves well-formed ad copy and points the SDK at itself via GEMINI_BASE_URL.
  */
+export type StubGeminiOptions = {
+  /**
+   * Chooses what to serve for a given request. Return the object the model
+   * should have produced, or null to fall through to the default ad copy.
+   * Lets one stub answer both strategy and creative calls in the same test.
+   */
+  respond?: (requestBody: string, callIndex: number) => unknown | null;
+};
+
 export type StubGemini = {
   port: number;
   /** Number of generate calls received so far. */
@@ -30,7 +39,7 @@ function adCopy(seed: number) {
   };
 }
 
-export async function startStubGemini(): Promise<StubGemini> {
+export async function startStubGemini(options: StubGeminiOptions = {}): Promise<StubGemini> {
   let calls = 0;
   let failStatus: number | null = null;
   const bodies: string[] = [];
@@ -49,11 +58,14 @@ export async function startStubGemini(): Promise<StubGemini> {
       return;
     }
 
+    const custom = options.respond ? options.respond(body, calls) : null;
+    const payload = custom === null || custom === undefined ? adCopy(calls) : custom;
+
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(
       JSON.stringify({
         candidates: [
-          { content: { parts: [{ text: JSON.stringify(adCopy(calls)) }], role: 'model' }, finishReason: 'STOP' },
+          { content: { parts: [{ text: JSON.stringify(payload) }], role: 'model' }, finishReason: 'STOP' },
         ],
       })
     );

@@ -10,6 +10,16 @@ import { googleAdsDestinationRejection, parseDestinationType } from '@/lib/campa
 import { validateDestinationUrl, validateDestinationUrlSyntax } from '@/lib/urlValidator';
 import { AppError, ERROR_CODES, logSafeError, toSafeError } from '@/lib/errors';
 
+function safeRevalidate(path: string) {
+  try {
+    revalidatePath(path);
+  } catch {
+    // Non-request contexts (unit tests) have no Next static generation store.
+    // Cache revalidation failing must never make a completed approval look
+    // like it failed to the owner.
+  }
+}
+
 export async function saveDraftCampaign(payload: unknown) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -184,8 +194,8 @@ export async function requestApproval(campaignId: string) {
   if (error || !data) throw new AppError(ERROR_CODES.APPROVAL_FAILED, 400);
 
   await logAudit(user.id, 'CAMPAIGN_SUBMITTED_FOR_APPROVAL', 'campaign', campaignId, null, null, 'DRAFT -> PENDING_APPROVAL');
-  revalidatePath('/campaigns');
-  revalidatePath(`/campaigns/${campaignId}`);
+  safeRevalidate('/campaigns');
+  safeRevalidate(`/campaigns/${campaignId}`);
 }
 
 export async function approveCampaign(campaignId: string) {
@@ -203,8 +213,8 @@ export async function approveCampaign(campaignId: string) {
     throw new AppError(ERROR_CODES.APPROVAL_FAILED, 400);
   }
 
-  revalidatePath('/campaigns');
-  revalidatePath(`/campaigns/${campaignId}`);
+  safeRevalidate('/campaigns');
+  safeRevalidate(`/campaigns/${campaignId}`);
   return true;
 }
 
@@ -212,8 +222,8 @@ export async function generateCreativesAction(campaignId: string) {
   const { generateAndSaveGoogleCreatives } = await import('@/lib/providers/google/generative');
   try {
     const result = await generateAndSaveGoogleCreatives(campaignId);
-    revalidatePath(`/campaigns/${campaignId}`);
-    revalidatePath(`/campaigns/${campaignId}/google`);
+    safeRevalidate(`/campaigns/${campaignId}`);
+    safeRevalidate(`/campaigns/${campaignId}/google`);
     return { ok: true as const, creativeId: result.creativeId };
   } catch (err) {
     logSafeError('generateCreativesAction', err);
@@ -225,7 +235,7 @@ export async function generateCreativesAction(campaignId: string) {
 export async function verifyDestinationAction(campaignId: string) {
   try {
     const result = await verifyCampaign(campaignId, { checkReachability: true });
-    revalidatePath(`/campaigns/${campaignId}`);
+    safeRevalidate(`/campaigns/${campaignId}`);
     return { ok: result.allPass, checks: result.checks };
   } catch (err) {
     logSafeError('verifyDestinationAction', err);

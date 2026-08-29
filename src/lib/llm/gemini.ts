@@ -40,7 +40,28 @@ function callToAction(destinationType: string): string {
   return 'Customers will land on the salon website, so invite them to book online.';
 }
 
-function buildPrompt(context: LlmCampaignContext, previousErrors?: string[]): string {
+/** Owner-approved strategy from the marketing plan, when the campaign came from one. */
+export type CreativeStrategy = {
+  messaging: string;
+  angles: { name: string; description: string }[];
+};
+
+function strategySection(strategy?: CreativeStrategy): string {
+  if (!strategy || strategy.angles.length === 0) return '';
+  const angles = strategy.angles
+    .map((a, i) => `${i + 1}. ${a.name} — ${a.description}`)
+    .join('\n');
+  return `
+THE APPROVED STRATEGY FOR THIS CAMPAIGN
+How the ads should talk: ${strategy.messaging}
+
+Write to these angles, spreading the headlines across them rather than repeating
+one idea. Each angle is a genuinely different reason a customer would book:
+${angles}
+`;
+}
+
+function buildPrompt(context: LlmCampaignContext, previousErrors?: string[], strategy?: CreativeStrategy): string {
   const audience = context.target_audience || 'local salon customers';
   const location = context.location || 'the local area';
 
@@ -56,7 +77,7 @@ Campaign details:
 - Who the ads are for: ${audience}
 - Area the ads target: ${location}
 - ${callToAction(context.destination_type)}
-
+${strategySection(strategy)}
 Write ad copy for Indian consumers searching in India. Requirements:
 - Sound natural to an Indian reader. Use Indian English as it is actually written in salon
   advertising. Rupee amounts use the Rs. or the rupee sign, never dollars.
@@ -87,14 +108,15 @@ ${retryNote}`;
  */
 export async function generateAdCopy(
   context: LlmCampaignContext,
-  previousErrors?: string[]
+  previousErrors?: string[],
+  strategy?: CreativeStrategy
 ): Promise<RawAdCopy> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new AppError(ERROR_CODES.LLM_NOT_CONFIGURED, 503);
   }
 
-  const prompt = buildPrompt(context, previousErrors);
+  const prompt = buildPrompt(context, previousErrors, strategy);
   // Throws if anything credential-shaped or personal reached the prompt.
   assertPromptIsSafe(prompt);
 
@@ -146,4 +168,70 @@ export async function generateAdCopy(
         match_type: k.match_type === 'PHRASE' ? 'PHRASE' : 'EXACT',
       })),
   };
+}
+
+
+/* ------------------------------------------------------------------------ *
+ * Generic structured generation
+ *
+ * Shared by the strategist and the performance analyst. Same key, same model
+ * selection, same no-fallback rule: a failure surfaces as an error rather than
+ * inventing a result.
+ * ------------------------------------------------------------------------ */
+
+export type StructuredCall = {
+  prompt: string;
+  /** Gemini responseSchema describing the expected JSON. */
+  responseSchema: unknown;
+  temperature?: number;
+};
+
+export type StructuredResult<T> = {
+  data: T;
+  model: string;
+  latencyMs: number;
+};
+
+/**
+ * Calls Gemini for JSON matching a schema. The caller must still validate the
+ * result against its own zod schema -- this only guarantees valid JSON, never
+ * that the content is trustworthy.
+ */
+export async function generateStructuredJson<T>(call: StructuredCall): Promise<StructuredResult<T>> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new AppError(ERROR_CODES.LLM_NOT_CONFIGURED, 503);
+  }
+
+  assertPromptIsSafe(call.prompt);
+
+  const baseUrl = process.env.GEMINI_BASE_URL;
+  const ai = new GoogleGenAI(baseUrl ? { apiKey, httpOptions: { baseUrl } } : { apiKey });
+  const model = process.env.GEMINI_MODEL || DEFAULT_MODEL;
+
+  const startedAt = Date.now();
+  let text: string | undefined;
+  try {
+    const response = await ai.models.generateContent({
+      model,
+      contents: call.prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: call.responseSchema as never,
+        temperature: call.temperature ?? 0.4,
+      },
+    });
+    text = response.text;
+  } catch {
+    throw new AppError(ERROR_CODES.LLM_UNAVAILABLE, 502);
+  }
+
+  const latencyMs = Date.now() - startedAt;
+  if (!text) throw new AppError(ERROR_CODES.LLM_UNAVAILABLE, 502);
+
+  try {
+    return { data: JSON.parse(text) as T, model, latencyMs };
+  } catch {
+    throw new AppError(ERROR_CODES.LLM_INVALID_OUTPUT, 502);
+  }
 }
