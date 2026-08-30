@@ -1,5 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { appUrl } from '@/lib/appUrl'
+import { isUnauthenticatedPublicPath } from '@/lib/auth/publicPaths'
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -27,26 +29,14 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  // refreshing the auth token and checking access
   const { data: { user } } = await supabase.auth.getUser();
 
-  // Only these API paths are callable without a session. Everything else under
-  // /api still authenticates inside the route; this is defense in depth so a
-  // new route cannot ship accidentally unauthenticated at the edge.
-  const pathname = request.nextUrl.pathname;
-  const isPublicRoute =
-    pathname.startsWith('/login') ||
-    pathname === '/api/leads' ||
-    pathname === '/api/leads/' ||
-    pathname === '/api/interactions' ||
-    pathname === '/api/interactions/' ||
-    pathname.startsWith('/api/cron/') ||
-    pathname.startsWith('/api/integrations/google/callback');
-  
-  if (!user && !isPublicRoute) {
-    const url = request.nextUrl.clone();
-    url.pathname = '/login';
-    return NextResponse.redirect(url);
+  if (!user && !isUnauthenticatedPublicPath(request.nextUrl.pathname)) {
+    const redirectResponse = NextResponse.redirect(appUrl('/login', request.url))
+    supabaseResponse.cookies.getAll().forEach((cookie) => {
+      redirectResponse.cookies.set(cookie)
+    })
+    return redirectResponse
   }
 
   return supabaseResponse

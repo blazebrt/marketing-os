@@ -29,6 +29,20 @@ export async function provisionWebsiteTracking(): Promise<
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new AppError(ERROR_CODES.UNAUTHORIZED, 401);
 
+    const { data: existing } = await supabase
+      .from('integrations')
+      .select('id, last_verified_at')
+      .eq('owner_id', user.id)
+      .eq('provider', 'website')
+      .maybeSingle();
+
+    if (existing?.last_verified_at) {
+      const last = Date.parse(existing.last_verified_at);
+      if (Number.isFinite(last) && Date.now() - last < 10_000) {
+        throw new AppError(ERROR_CODES.RATE_LIMITED, 429);
+      }
+    }
+
     const hmacSecret = crypto.randomBytes(32).toString('hex');
     await upsertIntegration(user.id, 'website', { hmac_secret: hmacSecret }, 'connected');
 

@@ -1,4 +1,5 @@
 import { createClient } from './supabase/server';
+import { isUuid } from './ids';
 
 export type PrelaunchCheckResult = {
   passed: boolean;
@@ -12,6 +13,9 @@ export async function runPrelaunchVerification(campaignId: string): Promise<Prel
 
   if (!user) {
     return { passed: false, errors: ['Unauthorized.'] };
+  }
+  if (!isUuid(campaignId)) {
+    return { passed: false, errors: ['Campaign not found.'] };
   }
 
   const { data: campaign } = await supabase

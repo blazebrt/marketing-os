@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { buildPerformance, type SpendRow, type LeadRow } from '@/lib/metrics/performance';
 import { analysePerformance, type Finding } from './findings';
 import { logSafeError } from '@/lib/errors';
+import { metricsSinceIso } from '@/lib/metrics/format';
 
 /**
  * Turns measured performance into recommendations the owner can act on.
@@ -56,7 +57,8 @@ export async function refreshRecommendations(ownerId: string): Promise<{
     supabase
       .from('campaign_daily_metrics')
       .select('google_campaign_id, google_campaign_name, campaign_id, cost_amount, impressions, clicks, currency_code, metric_date')
-      .eq('owner_id', ownerId),
+      .eq('owner_id', ownerId)
+      .gte('metric_date', metricsSinceIso()),
     supabase
       .from('leads')
       .select('id, status, revenue_amount, attributed_google_campaign_id, gclid, attribution_checked_at')

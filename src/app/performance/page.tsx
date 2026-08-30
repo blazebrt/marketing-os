@@ -7,7 +7,7 @@ import {
   type LeadRow,
   type CampaignPerformance,
 } from '@/lib/metrics/performance';
-import { formatMoney, formatCount, formatMultiple } from '@/lib/metrics/format';
+import { formatMoney, formatCount, formatMultiple, metricsSinceIso } from '@/lib/metrics/format';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,6 +21,7 @@ export default async function PerformancePage() {
       .from('campaign_daily_metrics')
       .select('google_campaign_id, google_campaign_name, campaign_id, cost_amount, impressions, clicks, currency_code, metric_date')
       .eq('owner_id', user.id)
+      .gte('metric_date', metricsSinceIso())
       .order('metric_date', { ascending: false }),
     supabase
       .from('leads')

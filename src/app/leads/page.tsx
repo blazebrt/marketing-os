@@ -7,7 +7,12 @@ export default async function LeadsPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return redirect('/login');
 
-  const { data: leads } = await supabase.from('leads').select('*').order('created_at', { ascending: false });
+  const { data: leads } = await supabase
+    .from('leads')
+    .select('*')
+    .eq('owner_id', user.id)
+    .order('created_at', { ascending: false })
+    .limit(500);
 
   const statuses = ['NEW', 'CONTACTED', 'BOOKED', 'VISITED', 'PAID', 'LOST', 'UNKNOWN'];
 

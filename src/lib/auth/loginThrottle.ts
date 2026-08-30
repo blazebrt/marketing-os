@@ -58,6 +58,9 @@ export async function recordLoginFailure(email: string): Promise<void> {
   try {
     const db = createServiceClient();
     const hash = hashLoginEmail(email);
+    const { error } = await db.rpc('rpc_record_login_failure', { p_email_hash: hash });
+    if (!error) return;
+    // Fallback when the RPC is not deployed yet (older DBs / some tests).
     const next = nextFailureState(await readRow(hash));
     await db.from('login_throttle').upsert({
       email_hash: hash,

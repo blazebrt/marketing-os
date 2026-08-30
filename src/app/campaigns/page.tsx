@@ -11,7 +11,8 @@ export default async function CampaignsPage() {
     .from('unified_campaigns')
     .select('*')
     .eq('owner_id', user.id)
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+    .limit(500);
 
   return (
     <div className="p-8 max-w-7xl mx-auto">

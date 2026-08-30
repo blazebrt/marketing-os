@@ -2,13 +2,22 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { disconnectIntegration } from '@/lib/integrations';
 import { appUrl } from '@/lib/appUrl';
+import { mutationOriginAllowed } from '@/lib/http/mutationOrigin';
 
 const PROVIDERS = ['meta', 'google', 'whatsapp', 'instagram', 'website'] as const;
+const MAX_JSON_BYTES = 1024;
 
 async function readProvider(req: NextRequest): Promise<string | null> {
   const contentType = req.headers.get('content-type') || '';
   if (contentType.includes('application/json')) {
-    const body = await req.json().catch(() => null);
+    const raw = await req.text().catch(() => '');
+    if (raw.length > MAX_JSON_BYTES) return null;
+    let body: { provider?: unknown } | null = null;
+    try {
+      body = JSON.parse(raw);
+    } catch {
+      return null;
+    }
     return typeof body?.provider === 'string' ? body.provider : null;
   }
   const form = await req.formData().catch(() => null);
@@ -17,6 +26,10 @@ async function readProvider(req: NextRequest): Promise<string | null> {
 }
 
 export async function POST(req: NextRequest) {
+  if (!mutationOriginAllowed(req)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 

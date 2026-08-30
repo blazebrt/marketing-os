@@ -6,7 +6,7 @@ import {
   buildPerformance, rankByCostPerPayingCustomer,
   type SpendRow, type LeadRow, type CampaignPerformance,
 } from '@/lib/metrics/performance';
-import { formatMoney, formatCount, formatMultiple } from '@/lib/metrics/format';
+import { formatMoney, formatCount, formatMultiple, metricsSinceIso } from '@/lib/metrics/format';
 import { loadSalonContext } from '@/lib/salon/context';
 import { salonContextGaps } from '@/lib/salon/types';
 import { analysePerformance } from '@/lib/analysis/findings';
@@ -24,7 +24,8 @@ export default async function DashboardPage() {
     await Promise.all([
       supabase.from('campaign_daily_metrics')
         .select('google_campaign_id, google_campaign_name, campaign_id, cost_amount, impressions, clicks, currency_code, metric_date')
-        .eq('owner_id', user.id),
+        .eq('owner_id', user.id)
+        .gte('metric_date', metricsSinceIso()),
       supabase.from('leads')
         .select('id, status, revenue_amount, attributed_google_campaign_id, gclid, attribution_checked_at')
         .eq('owner_id', user.id),
