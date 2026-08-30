@@ -1,10 +1,22 @@
 import { login } from './actions'
 
-export default function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ message?: string }>
+}) {
+  const params = await searchParams
+  const showError = Boolean(params.message)
+
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 p-4">
       <div className="w-full max-w-sm rounded-lg bg-white p-6 shadow-md">
         <h1 className="mb-6 text-2xl font-semibold text-center">Marketing OS</h1>
+        {showError && (
+          <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+            Could not authenticate user
+          </p>
+        )}
         <form className="flex flex-col gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700" htmlFor="email">Email</label>

@@ -38,7 +38,8 @@ export async function GET(req: NextRequest) {
   }
 
   if (errorParam) {
-    await logAudit(user.id, 'OAUTH_FAILED', 'integration', null, null, null, `Provider error: ${errorParam}`);
+    const safeProviderError = /^[a-zA-Z0-9._-]{1,80}$/.test(errorParam) ? errorParam : 'rejected';
+    await logAudit(user.id, 'OAUTH_FAILED', 'integration', null, null, null, `Provider error: ${safeProviderError}`);
     return clearOauthCookie(NextResponse.redirect(appUrl('/integrations?error=provider_rejected', req.url)));
   }
 

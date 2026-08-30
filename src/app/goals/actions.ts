@@ -9,7 +9,7 @@ import { isSalonReadyForStrategy } from '@/lib/salon/types';
 import { loadPerformanceHistory } from '@/lib/strategy/history';
 import { generateMarketingPlan } from '@/lib/strategy/generate';
 import { MarketingPlanSchema, type MarketingPlan } from '@/lib/strategy/schema';
-import { recordAiEvent } from '@/lib/ai/events';
+import { recordAiEvent, assertAiRateLimit } from '@/lib/ai/events';
 import { saveDraftCampaign } from '@/app/campaigns/actions';
 import { logAudit } from '@/lib/audit';
 import { isUuid } from '@/lib/ids';
@@ -47,6 +47,7 @@ export async function createGoalAndPlan(raw: unknown) {
   try {
     const { supabase, ownerId } = await requireOwner();
     ownerIdForEvent = ownerId;
+    await assertAiRateLimit(ownerId, 'STRATEGY_GENERATED', 10);
     const goal = GoalInputSchema.parse(raw);
 
     const context = await loadSalonContext(ownerId);

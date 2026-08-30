@@ -12,6 +12,10 @@ async function idempotencyClient() {
   }
 }
 
+function lockId(ownerId: string, key: string): string {
+  return `${ownerId}:${key}`;
+}
+
 export async function withIdempotency<T>(
   key: string,
   ownerId: string,
@@ -20,46 +24,70 @@ export async function withIdempotency<T>(
   ttlMs: number = 60000
 ): Promise<T> {
   const supabase = await idempotencyClient();
-  
-  // 1. Try to lock (insert processing state)
+  const id = lockId(ownerId, key);
+
   const { error: insertError } = await supabase.from('idempotency_keys').insert({
-    id: key,
+    id,
     owner_id: ownerId,
     resource_type: resourceType,
     status: 'processing'
   });
 
   if (insertError) {
-    // 2. If it exists, check status and staleness
     const { data: existing } = await supabase
       .from('idempotency_keys')
       .select('*')
-      .eq('id', key)
+      .eq('id', id)
       .eq('owner_id', ownerId)
       .single();
 
     if (!existing) {
-       throw new Error('Idempotency key collision with different owner or unknown error');
+      throw new Error('Idempotency key collision with different owner or unknown error');
     }
 
     if (existing.status === 'completed') {
-      return existing.response as T; // Cached response
+      return existing.response as T;
     }
+
+    const staleBefore = new Date(Date.now() - ttlMs).toISOString();
+    const now = new Date().toISOString();
 
     if (existing.status === 'processing') {
       const lockAge = Date.now() - new Date(existing.updated_at).getTime();
       if (lockAge < ttlMs) {
-         throw new Error('Concurrent request processing. Race protection triggered.');
+        throw new Error('Concurrent request processing. Race protection triggered.');
       }
-      // Stale lock recovery - we will proceed
+      const { data: claimed } = await supabase
+        .from('idempotency_keys')
+        .update({ status: 'processing', updated_at: now, response: null })
+        .eq('id', id)
+        .eq('owner_id', ownerId)
+        .eq('status', 'processing')
+        .lt('updated_at', staleBefore)
+        .select('id');
+      if (!claimed || claimed.length === 0) {
+        throw new Error('Concurrent request processing. Race protection triggered.');
+      }
+    } else if (existing.status === 'failed') {
+      const { data: claimed } = await supabase
+        .from('idempotency_keys')
+        .update({ status: 'processing', updated_at: now, response: null })
+        .eq('id', id)
+        .eq('owner_id', ownerId)
+        .eq('status', 'failed')
+        .select('id');
+      if (!claimed || claimed.length === 0) {
+        throw new Error('Concurrent request processing. Race protection triggered.');
+      }
+    } else {
+      throw new Error('Concurrent request processing. Race protection triggered.');
     }
   }
 
-  // 3. Execute
   try {
     const result = await operation();
     await supabase.from('idempotency_keys').upsert({
-      id: key,
+      id,
       owner_id: ownerId,
       resource_type: resourceType,
       status: 'completed',
@@ -69,7 +97,7 @@ export async function withIdempotency<T>(
     return result;
   } catch (err) {
     await supabase.from('idempotency_keys').upsert({
-      id: key,
+      id,
       owner_id: ownerId,
       resource_type: resourceType,
       status: 'failed',

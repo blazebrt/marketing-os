@@ -255,15 +255,10 @@ export class GoogleAdsMutationClient {
     if (message.includes('QUOTA_CHECK_FAILED') || message.includes('RATE_EXCEEDED')) {
       return new GoogleProviderError(ERROR_CODES.RATE_LIMITED, 'Google Ads API rate limit exceeded.');
     }
-    
-    // Sanitize string before returning to prevent leaking details
-    const sanitizedMsg = message.replace(/bearer\s+[A-Za-z0-9-_=]+/ig, 'Bearer [REDACTED]')
-                                .replace(/developer-token: \S+/ig, 'developer-token: [REDACTED]');
-                                
+
     return new GoogleProviderError(
       ERROR_CODES.INVALID_REQUEST,
-      `Google Ads API request failed in ${context}`,
-      [{ message: sanitizedMsg }]
+      `Google Ads API request failed in ${context}`
     );
   }
 }

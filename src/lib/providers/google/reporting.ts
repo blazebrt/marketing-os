@@ -276,7 +276,7 @@ export async function resolveGclidsToCampaigns(
     const gaql = `
       SELECT click_view.gclid, campaign.id, segments.date
       FROM click_view
-      WHERE segments.date = '${day}'
+      WHERE segments.date = ${gaqlStringLiteral(day)}
     `;
 
     try {

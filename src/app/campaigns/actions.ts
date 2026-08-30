@@ -241,6 +241,9 @@ export async function generateCreativesAction(campaignId: string) {
 
 export async function verifyDestinationAction(campaignId: string) {
   try {
+    if (!isUuid(campaignId)) {
+      return { ok: false, checks: [], code: ERROR_CODES.VALIDATION_FAILED };
+    }
     const result = await verifyCampaign(campaignId, { checkReachability: true });
     safeRevalidate(`/campaigns/${campaignId}`);
     return { ok: result.allPass, checks: result.checks };

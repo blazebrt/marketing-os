@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 import { AppError, ERROR_CODES, logSafeError, toSafeError } from '@/lib/errors';
 import { refreshRecommendations } from '@/lib/analysis/recommendations';
-import { recordAiEvent } from '@/lib/ai/events';
+import { recordAiEvent, assertAiRateLimit } from '@/lib/ai/events';
 import { logAudit } from '@/lib/audit';
 import { isUuid } from '@/lib/ids';
 
@@ -23,6 +23,7 @@ async function requireOwner() {
 export async function analyseNow() {
   try {
     const { ownerId } = await requireOwner();
+    await assertAiRateLimit(ownerId, 'ANALYSIS_RUN', 20);
     const started = Date.now();
     const { generated } = await refreshRecommendations(ownerId);
 
