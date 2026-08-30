@@ -3,9 +3,14 @@ import { generateAndSaveGoogleCreatives } from '@/lib/providers/google/generativ
 import { AppError, toSafeError, logSafeError, ERROR_CODES } from '@/lib/errors';
 import { createClient } from '@/lib/supabase/server';
 import { isUuid } from '@/lib/ids';
+import { mutationOriginAllowed } from '@/lib/http/mutationOrigin';
 
-export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    if (!mutationOriginAllowed(req)) {
+      return NextResponse.json({ error: ERROR_CODES.UNAUTHORIZED, code: ERROR_CODES.UNAUTHORIZED }, { status: 403 });
+    }
+
     const resolvedParams = await params;
     const campaignId = resolvedParams.id;
 

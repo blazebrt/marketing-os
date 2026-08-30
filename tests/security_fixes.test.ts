@@ -15,6 +15,7 @@ import { calculateSafetyLimits, normaliseBudgetType } from '../src/lib/campaigns
 import { gaqlIntLiteral, gaqlStringLiteral } from '../src/lib/providers/google/gaql';
 import { CampaignIntentSchema } from '../src/lib/schemas/campaigns';
 import { appOrigin } from '../src/lib/appUrl';
+import { mutationOriginAllowed } from '../src/lib/http/mutationOrigin';
 import { campaignDisplayName, campaignLandingUrl } from '../src/lib/campaigns/fields';
 import { sanitiseIntegrationCredentials } from '../src/lib/integrations';
 import { hashLoginEmail, isLoginLocked, nextFailureState, LOGIN_THROTTLE } from '../src/lib/auth/loginThrottle';
@@ -41,6 +42,10 @@ async function main() {
   const sig = crypto.createHmac('sha256', secret).update(ts + '.' + payload).digest('hex');
   assert(await verifyHmac(payload, sig, secret, ts) === true, 'Valid HMAC still accepted');
   assert(await verifyHmac(payload, sig.toUpperCase(), secret, ts) === true, 'HMAC hex is compared case-insensitively');
+
+  const tsSec = Math.floor(Date.now() / 1000).toString();
+  const sigSec = crypto.createHmac('sha256', secret).update(tsSec + '.' + payload).digest('hex');
+  assert(await verifyHmac(payload, sigSec, secret, tsSec) === true, 'Unix-second HMAC timestamps are accepted');
 
   const badIdReq = new NextRequest('http://localhost:3000/api/interactions', {
     method: 'POST',
@@ -186,6 +191,22 @@ async function main() {
   const prev = process.env.NEXT_PUBLIC_BASE_URL;
   process.env.NEXT_PUBLIC_BASE_URL = 'https://marketing.example.com';
   assert(appOrigin('http://evil.example/login') === 'https://marketing.example.com', 'Redirects use configured base URL, not Host');
+
+  const sameOrigin = new NextRequest('https://marketing.example.com/api/integrations/disconnect', {
+    method: 'POST',
+    headers: { origin: 'https://marketing.example.com' },
+  });
+  const crossSite = new NextRequest('https://marketing.example.com/api/integrations/disconnect', {
+    method: 'POST',
+    headers: { origin: 'https://evil.example' },
+  });
+  const missingOrigin = new NextRequest('https://marketing.example.com/api/integrations/disconnect', {
+    method: 'POST',
+  });
+  assert(mutationOriginAllowed(sameOrigin) === true, 'Same-origin mutation is allowed');
+  assert(mutationOriginAllowed(crossSite) === false, 'Cross-site Origin is rejected');
+  assert(mutationOriginAllowed(missingOrigin) === false, 'Missing Origin is rejected');
+
   if (prev === undefined) delete process.env.NEXT_PUBLIC_BASE_URL;
   else process.env.NEXT_PUBLIC_BASE_URL = prev;
 

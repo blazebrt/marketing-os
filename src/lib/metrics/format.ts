@@ -19,3 +19,10 @@ export function formatMultiple(value: number | null): string {
   if (value === null || !Number.isFinite(value)) return 'No data yet';
   return `${value.toFixed(1)}x`;
 }
+
+/** Inclusive UTC start date for performance queries (YYYY-MM-DD). */
+export function metricsSinceIso(days = 90): string {
+  const since = new Date();
+  since.setUTCDate(since.getUTCDate() - days);
+  return since.toISOString().slice(0, 10);
+}

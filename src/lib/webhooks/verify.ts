@@ -8,10 +8,12 @@ export async function verifyHmac(payload: string, signature: string, secret: str
   if (!/^\d{1,15}$/.test(timestamp)) {
     return false;
   }
-  const ts = Number(timestamp);
-  if (!Number.isFinite(ts)) {
+  const raw = Number(timestamp);
+  if (!Number.isFinite(raw)) {
     return false;
   }
+  // Tracking scripts may send unix seconds or milliseconds.
+  const ts = raw < 1e12 ? raw * 1000 : raw;
   const timeDiff = Math.abs(Date.now() - ts);
   // Replay protection: 5 minute window
   if (timeDiff > 5 * 60 * 1000) {

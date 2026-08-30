@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { buildPerformance, type SpendRow, type LeadRow } from '@/lib/metrics/performance';
 import type { PerformanceHistory } from './generate';
+import { metricsSinceIso } from '@/lib/metrics/format';
 
 /**
  * Real, measured campaign history for the strategist.
@@ -16,7 +17,8 @@ export async function loadPerformanceHistory(ownerId: string): Promise<Performan
     supabase
       .from('campaign_daily_metrics')
       .select('google_campaign_id, google_campaign_name, campaign_id, cost_amount, impressions, clicks, currency_code, metric_date')
-      .eq('owner_id', ownerId),
+      .eq('owner_id', ownerId)
+      .gte('metric_date', metricsSinceIso()),
     supabase
       .from('leads')
       .select('id, status, revenue_amount, attributed_google_campaign_id, gclid, attribution_checked_at')

@@ -71,8 +71,8 @@ export function WebsiteTracking({
           <code className="mt-2 block break-all font-mono">{secret}</code>
           <p className="mt-2 text-amber-900">
             Sign each request as hex HMAC-SHA256 of <code>timestamp.rawBody</code> using this
-            secret. Send that as <code>x-signature</code> and the timestamp as <code>x-timestamp</code>
-            to <code>/api/interactions</code> and <code>/api/leads</code>.
+            secret. Send that as <code>x-signature</code> and the timestamp (unix milliseconds)
+            as <code>x-timestamp</code> to <code>/api/interactions</code> and <code>/api/leads</code>.
           </p>
         </div>
       )}

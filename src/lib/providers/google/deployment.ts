@@ -160,7 +160,8 @@ export async function deployGoogleCampaign(campaignId: string, ownerId: string):
       await supabase
         .from('channel_deployments')
         .update({ external_state: externalState, status: newStatus })
-        .eq('id', deployment.id);
+        .eq('id', deployment.id)
+        .eq('owner_id', authenticatedUid);
     };
 
     // 4. Create Budget
@@ -246,15 +247,17 @@ export async function deployGoogleCampaign(campaignId: string, ownerId: string):
       await supabase
         .from('channel_deployments')
         .update({ status: 'ACTIVE', reconciliation_status: 'MATCH' })
-        .eq('id', deployment.id);
+        .eq('id', deployment.id)
+        .eq('owner_id', authenticatedUid);
       await logAudit(authenticatedUid, 'GOOGLE_DEPLOYMENT_VERIFIED', 'channel_deployment', deployment.id, null, null, 'Deployment successfully verified and activated');
     } else {
       await supabase
         .from('channel_deployments')
         .update({ status: 'FAILED', reconciliation_status: reconciliationResult.status })
-        .eq('id', deployment.id);
+        .eq('id', deployment.id)
+        .eq('owner_id', authenticatedUid);
 
-      throw new Error(`Deployment reconciliation failed with result: ${reconciliationResult.status}. Differences: ${JSON.stringify(reconciliationResult.differences)}`);
+      throw new Error(`Deployment reconciliation failed with result: ${reconciliationResult.status}`);
     }
 
   } catch (err: any) {
@@ -267,7 +270,8 @@ export async function deployGoogleCampaign(campaignId: string, ownerId: string):
         failure_stage: 'DEPLOYMENT',
         reconciliation_status: 'REQUIRED'
       })
-      .eq('id', deployment.id);
+      .eq('id', deployment.id)
+      .eq('owner_id', authenticatedUid);
       
     await logAudit(authenticatedUid, 'GOOGLE_DEPLOYMENT_FAILED', 'channel_deployment', deployment.id, null, { error_code: err.code || ERROR_CODES.INTERNAL_ERROR, stage: 'DEPLOYMENT' }, 'Deployment failed');
     throw err;

@@ -115,7 +115,10 @@ async function run() {
     assert(e.code === ERROR_CODES.UNAUTHORIZED, 'anonymous generation rejected');
   }
 
-  const anonRes = await generatePOST(new NextRequest('http://localhost/api/campaigns/' + campA + '/generate', { method: 'POST' }), {
+  const anonRes = await generatePOST(new NextRequest('http://localhost/api/campaigns/' + campA + '/generate', {
+    method: 'POST',
+    headers: { origin: 'http://localhost' },
+  }), {
     params: Promise.resolve({ id: campA }),
   });
   assert(anonRes.status === 401, 'anonymous generate API rejected');
@@ -343,7 +346,10 @@ async function run() {
   const { rows: dep2 } = await db.query('select target_state from public.channel_deployments where campaign_id=$1 and provider=$2', [campApprove, 'google']) as any;
   assert(dep2[0].target_state.headlines[0].current_value === snapshotHead, 'approval change after snapshot does not mutate snapshot');
 
-  const apiOk = await generatePOST(new NextRequest('http://localhost/x', { method: 'POST' }), {
+  const apiOk = await generatePOST(new NextRequest('http://localhost/x', {
+    method: 'POST',
+    headers: { origin: 'http://localhost' },
+  }), {
     params: Promise.resolve({ id: campA }),
   });
   assert(apiOk.status === 429 || apiOk.status === 409 || apiOk.status === 200, 'generate API executes with auth');

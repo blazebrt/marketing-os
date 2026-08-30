@@ -7,6 +7,7 @@ import { buildPerformance, type SpendRow, type LeadRow } from '@/lib/metrics/per
 import { analysePerformance } from '@/lib/analysis/findings';
 import { buildAssistantContext, answerSalonQuestion, type AssistantAnswer } from '@/lib/assistant/answer';
 import { recordAiEvent, assertAiRateLimit } from '@/lib/ai/events';
+import { metricsSinceIso } from '@/lib/metrics/format';
 
 export async function askAssistant(question: string): Promise<
   { ok: true; answer: AssistantAnswer } | { ok: false; code: string }
@@ -16,18 +17,15 @@ export async function askAssistant(question: string): Promise<
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new AppError(ERROR_CODES.UNAUTHORIZED, 401);
+    if (typeof question !== 'string') throw new AppError(ERROR_CODES.VALIDATION_FAILED, 400);
     ownerIdForEvent = user.id;
     await assertAiRateLimit(user.id, 'ASSISTANT_QUERY', 30);
-
-    const since = new Date();
-    since.setUTCDate(since.getUTCDate() - 90);
-    const sinceIso = since.toISOString().slice(0, 10);
 
     const [{ data: spend }, { data: leads }, { data: campaigns }, salon] = await Promise.all([
       supabase.from('campaign_daily_metrics')
         .select('google_campaign_id, google_campaign_name, campaign_id, cost_amount, impressions, clicks, currency_code, metric_date')
         .eq('owner_id', user.id)
-        .gte('metric_date', sinceIso),
+        .gte('metric_date', metricsSinceIso()),
       // Aggregates only: no name, phone or email is ever loaded here.
       supabase.from('leads')
         .select('id, status, revenue_amount, attributed_google_campaign_id, gclid, attribution_checked_at')
