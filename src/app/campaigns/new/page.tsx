@@ -45,8 +45,8 @@ export default function NewCampaignWizard() {
 
       const id = await saveDraftCampaign(payload);
       router.push(`/campaigns/${id}`);
-    } catch (e: any) {
-      setError(e.message);
+    } catch {
+      setError('Could not save this campaign. Check the fields and try again.');
       setLoading(false);
     }
   };

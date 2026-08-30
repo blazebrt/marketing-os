@@ -203,6 +203,7 @@ async function enforceResponseSize(response: Response): Promise<void> {
     }
   } catch (err) {
     if (err instanceof AppError) throw err;
+    throw new AppError(ERROR_CODES.DESTINATION_UNREACHABLE);
   }
 }
 

@@ -1,6 +1,7 @@
 import { GoogleAdsApi, Customer } from 'google-ads-api';
 import { verifyTestAccount } from './test-account';
 import { GoogleProviderError, ERROR_CODES } from './errors';
+import { gaqlStringLiteral } from './gaql';
 
 export interface GoogleAdsCredentials {
   developerToken: string;
@@ -57,7 +58,6 @@ export class GoogleAdsMutationClient {
           },
         },
       ]);
-      console.log("BUDGET RESPONSE:", JSON.stringify(response, null, 2));
       return (response[0] && response[0].mutated_resource_name) || (response.results && response.results[0] && response.results[0].resource_name) || (response.mutate_operation_responses && response.mutate_operation_responses[0] && (response.mutate_operation_responses[0].campaign_budget_result || response.mutate_operation_responses[0].campaign_result || response.mutate_operation_responses[0].ad_group_result || response.mutate_operation_responses[0].ad_group_ad_result || response.mutate_operation_responses[0].ad_group_criterion_result).resource_name) || undefined;
     } catch (err: any) {
       throw this.mapError(err, 'createCampaignBudget');
@@ -97,7 +97,6 @@ export class GoogleAdsMutationClient {
       ]);
       return (response[0] && response[0].mutated_resource_name) || (response.results && response.results[0] && response.results[0].resource_name) || (response.mutate_operation_responses && response.mutate_operation_responses[0] && (response.mutate_operation_responses[0].campaign_budget_result || response.mutate_operation_responses[0].campaign_result || response.mutate_operation_responses[0].ad_group_result || response.mutate_operation_responses[0].ad_group_ad_result || response.mutate_operation_responses[0].ad_group_criterion_result).resource_name) || undefined;
     } catch (err: any) {
-      console.error("CAMPAIGN CREATION ERROR:", JSON.stringify(err, null, 2), err);
       throw this.mapError(err, 'createCampaign');
     }
   }
@@ -180,7 +179,7 @@ export class GoogleAdsMutationClient {
       const response = await this.customer.query(`
         SELECT campaign_budget.resource_name 
         FROM campaign_budget 
-        WHERE campaign_budget.name = '${name}' 
+        WHERE campaign_budget.name = ${gaqlStringLiteral(name)} 
         LIMIT 1
       `);
       return response.length > 0 && response[0].campaign_budget ? (response[0].campaign_budget.resource_name || null) : null;
@@ -194,7 +193,7 @@ export class GoogleAdsMutationClient {
       const response = await this.customer.query(`
         SELECT campaign.resource_name 
         FROM campaign 
-        WHERE campaign.name = '${name}' 
+        WHERE campaign.name = ${gaqlStringLiteral(name)} 
         LIMIT 1
       `);
       return response.length > 0 && response[0].campaign ? (response[0].campaign.resource_name || null) : null;
@@ -208,7 +207,7 @@ export class GoogleAdsMutationClient {
       const response = await this.customer.query(`
         SELECT ad_group.resource_name 
         FROM ad_group 
-        WHERE ad_group.name = '${name}' AND campaign.resource_name = '${campaignResourceName}'
+        WHERE ad_group.name = ${gaqlStringLiteral(name)} AND campaign.resource_name = ${gaqlStringLiteral(campaignResourceName)}
         LIMIT 1
       `);
       return response.length > 0 && response[0].ad_group ? (response[0].ad_group.resource_name || null) : null;
@@ -222,7 +221,7 @@ export class GoogleAdsMutationClient {
       const response = await this.customer.query(`
         SELECT ad_group_ad.ad.resource_name 
         FROM ad_group_ad 
-        WHERE ad_group.resource_name = '${adGroupResourceName}'
+        WHERE ad_group.resource_name = ${gaqlStringLiteral(adGroupResourceName)}
       `);
       return response.map((r: any) => r.ad_group_ad.ad.resource_name);
     } catch (err: any) {
@@ -235,7 +234,7 @@ export class GoogleAdsMutationClient {
       const response = await this.customer.query(`
         SELECT ad_group_criterion.resource_name, ad_group_criterion.keyword.text, ad_group_criterion.keyword.match_type
         FROM ad_group_criterion 
-        WHERE ad_group.resource_name = '${adGroupResourceName}' AND ad_group_criterion.type = 'KEYWORD'
+        WHERE ad_group.resource_name = ${gaqlStringLiteral(adGroupResourceName)} AND ad_group_criterion.type = 'KEYWORD'
       `);
       return response.map((r: any) => ({
         resource_name: r.ad_group_criterion.resource_name,

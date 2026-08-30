@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { generateAndSaveGoogleCreatives } from '@/lib/providers/google/generative';
 import { AppError, toSafeError, logSafeError, ERROR_CODES } from '@/lib/errors';
 import { createClient } from '@/lib/supabase/server';
+import { isUuid } from '@/lib/ids';
 
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const resolvedParams = await params;
     const campaignId = resolvedParams.id;
 
-    if (!campaignId) {
+    if (!isUuid(campaignId)) {
       return NextResponse.json({ error: ERROR_CODES.VALIDATION_FAILED, code: ERROR_CODES.VALIDATION_FAILED }, { status: 400 });
     }
 

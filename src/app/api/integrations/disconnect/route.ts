@@ -8,8 +8,10 @@ export async function POST(req: NextRequest) {
 
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { provider } = await req.json();
-  if (!provider) return NextResponse.json({ error: 'Provider required' }, { status: 400 });
+  const { provider } = await req.json().catch(() => ({ provider: null }));
+  if (typeof provider !== 'string' || !['meta', 'google', 'whatsapp', 'instagram', 'website'].includes(provider)) {
+    return NextResponse.json({ error: 'Provider required' }, { status: 400 });
+  }
 
   await disconnectIntegration(user.id, provider);
   return NextResponse.json({ success: true });

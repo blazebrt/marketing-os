@@ -175,7 +175,6 @@ export async function approvePlanAndCreateCampaign(planId: string, landingUrl?: 
       return { ok: false as const, code: ERROR_CODES.CONFLICT };
     }
 
-    // Re-validate on the way out: the stored plan is re-parsed rather than trusted.
     const parsed = MarketingPlanSchema.safeParse(planRow.plan);
     if (!parsed.success) {
       return { ok: false as const, code: ERROR_CODES.VALIDATION_FAILED };
@@ -188,6 +187,22 @@ export async function approvePlanAndCreateCampaign(planId: string, landingUrl?: 
 
     if (destination === 'WEBSITE' && !url) {
       return { ok: false as const, code: 'DESTINATION_MISSING' };
+    }
+
+    // Claim the draft before creating a campaign so two concurrent approvals
+    // cannot both mint campaigns from the same plan.
+    const { data: claimed } = await supabase
+      .from('marketing_plans')
+      .update({
+        status: 'CONVERTED',
+        approved_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', planId).eq('owner_id', ownerId).eq('status', 'DRAFT')
+      .select('id');
+
+    if (!claimed || claimed.length === 0) {
+      return { ok: false as const, code: ERROR_CODES.CONFLICT };
     }
 
     let campaignId: string;
@@ -205,6 +220,10 @@ export async function approvePlanAndCreateCampaign(planId: string, landingUrl?: 
         channels: plan.channels,
       });
     } catch (err) {
+      await supabase
+        .from('marketing_plans')
+        .update({ status: 'DRAFT', approved_at: null, updated_at: new Date().toISOString() })
+        .eq('id', planId).eq('owner_id', ownerId).eq('status', 'CONVERTED').is('campaign_id', null);
       logSafeError('approvePlanAndCreateCampaign.campaign', err);
       return { ok: false as const, code: toSafeError(err).code };
     }
@@ -212,9 +231,7 @@ export async function approvePlanAndCreateCampaign(planId: string, landingUrl?: 
     await supabase
       .from('marketing_plans')
       .update({
-        status: 'CONVERTED',
         campaign_id: campaignId,
-        approved_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
       .eq('id', planId).eq('owner_id', ownerId);

@@ -4,11 +4,17 @@ import { LeadIngestionSchema } from '@/lib/schemas/tracking';
 import { createServiceClient } from '@/lib/supabase/service';
 import { withIdempotency } from '@/lib/idempotency';
 
+const MAX_WEBHOOK_BYTES = 32 * 1024;
+
 export async function POST(req: NextRequest) {
   let rawBody: string;
   try {
     rawBody = await req.text();
   } catch {
+    return NextResponse.json({ error: 'invalid_payload' }, { status: 400 });
+  }
+
+  if (rawBody.length > MAX_WEBHOOK_BYTES) {
     return NextResponse.json({ error: 'invalid_payload' }, { status: 400 });
   }
 
@@ -38,7 +44,11 @@ export async function POST(req: NextRequest) {
     
     const normalizedPhone = payload.phone ? payload.phone.replace(/\D/g, '') : null;
     const normalizedEmail = payload.email ? payload.email.toLowerCase().trim() : null;
-    const idempotencyKey = `lead_ingest_${provider}_${payload.external_lead_id || payload.session_id || normalizedPhone}`;
+    const identity = payload.external_lead_id || normalizedPhone || normalizedEmail || payload.session_id;
+    if (!identity) {
+      return NextResponse.json({ error: 'invalid_payload' }, { status: 400 });
+    }
+    const idempotencyKey = `lead_ingest_${provider}_${identity}`;
 
     const leadId = await withIdempotency(idempotencyKey, ownerId, 'webhook_event', async () => {
       let existingLead = null;

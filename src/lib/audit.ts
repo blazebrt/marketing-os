@@ -28,6 +28,6 @@ export async function logAudit(
   });
 
   if (error) {
-    console.error('Failed to write audit log:', error);
+    console.error(JSON.stringify({ scope: 'audit', code: 'AUDIT_WRITE_FAILED' }));
   }
 }

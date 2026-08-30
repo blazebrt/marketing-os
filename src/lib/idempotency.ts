@@ -1,4 +1,16 @@
 import { createClient } from './supabase/server';
+import { createServiceClient } from './supabase/service';
+
+async function idempotencyClient() {
+  // Webhooks have no user JWT; service role is required to write the lock row.
+  // Authenticated callers (OAuth) fall back to the session client in tests that
+  // only mock createClient().
+  try {
+    return createServiceClient();
+  } catch {
+    return await createClient();
+  }
+}
 
 export async function withIdempotency<T>(
   key: string,
@@ -7,7 +19,7 @@ export async function withIdempotency<T>(
   operation: () => Promise<T>,
   ttlMs: number = 60000
 ): Promise<T> {
-  const supabase = await createClient();
+  const supabase = await idempotencyClient();
   
   // 1. Try to lock (insert processing state)
   const { error: insertError } = await supabase.from('idempotency_keys').insert({
@@ -55,15 +67,15 @@ export async function withIdempotency<T>(
       updated_at: new Date().toISOString()
     });
     return result;
-  } catch (error: any) {
+  } catch (err) {
     await supabase.from('idempotency_keys').upsert({
       id: key,
       owner_id: ownerId,
       resource_type: resourceType,
       status: 'failed',
-      response: { error: error.message },
+      response: { error: 'failed' },
       updated_at: new Date().toISOString()
     });
-    throw error;
+    throw err;
   }
 }

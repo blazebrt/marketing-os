@@ -30,9 +30,16 @@ export async function updateSession(request: NextRequest) {
   // refreshing the auth token and checking access
   const { data: { user } } = await supabase.auth.getUser();
 
-  // Protect all routes except /login and /api public webhooks
-  const isPublicRoute = request.nextUrl.pathname.startsWith('/login') || 
-                        request.nextUrl.pathname.startsWith('/api/');
+  // Only these API paths are callable without a session. Everything else under
+  // /api still authenticates inside the route; this is defense in depth so a
+  // new route cannot ship accidentally unauthenticated at the edge.
+  const pathname = request.nextUrl.pathname;
+  const isPublicRoute =
+    pathname.startsWith('/login') ||
+    pathname === '/api/leads' ||
+    pathname === '/api/interactions' ||
+    pathname.startsWith('/api/cron/') ||
+    pathname.startsWith('/api/integrations/google/callback');
   
   if (!user && !isPublicRoute) {
     const url = request.nextUrl.clone();

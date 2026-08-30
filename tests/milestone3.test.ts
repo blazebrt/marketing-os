@@ -38,6 +38,7 @@ async function runTests() {
   const oldTimestamp = (Date.now() - 6 * 60 * 1000).toString(); // 6 mins ago
   const oldSig = crypto.createHmac('sha256', secret).update(oldTimestamp + '.' + payload).digest('hex');
   assert(await verifyHmac(payload, oldSig, secret, oldTimestamp) === false, '18. Replay protection (5 min window)');
+  assert(await verifyHmac(payload, signature, secret, 'NaN') === false, '18b. Non-numeric timestamp cannot skip the replay window');
 
   // Database interactions (M3 logic mocking)
   await db.exec(`

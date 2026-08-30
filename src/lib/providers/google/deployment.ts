@@ -1,13 +1,13 @@
 import { authorizeGoogleTestMutation } from './mutation-gate';
 import { createServiceClient } from '../../supabase/service';
 import { createClient as createServerClient } from '../../supabase/server';
-import { decryptCredential } from '../../crypto';
+import { decryptNamedSecret } from '../../crypto';
 import { GoogleAdsMutationClient } from './client';
 import { GoogleProviderError, ERROR_CODES } from './errors';
 import { logAudit } from '../../audit';
 import { GoogleTargetState, GoogleCreativeItem } from './types';
 import { reconcileGoogleDeployment } from './reconciliation';
-import { calculateSafetyLimits } from '../../campaigns/safeguards';
+import { calculateSafetyLimits, normaliseBudgetType } from '../../campaigns/safeguards';
 import { parseDestinationType } from '../../campaigns/destination';
 
 export async function deployGoogleCampaign(campaignId: string, ownerId: string): Promise<void> {
@@ -91,8 +91,7 @@ export async function deployGoogleCampaign(campaignId: string, ownerId: string):
 
     if (credError || !creds) throw new GoogleProviderError(ERROR_CODES.AUTH_FAILED, 'Google integration credentials missing');
 
-    const decrypted = JSON.parse(creds.encrypted_credentials);
-    const refreshToken = decryptCredential(decrypted.refresh_token);
+    const refreshToken = decryptNamedSecret(creds.encrypted_credentials, 'refresh_token');
 
     
     
@@ -103,11 +102,10 @@ export async function deployGoogleCampaign(campaignId: string, ownerId: string):
       throw new Error('Invalid duration');
     }
 
-    const rawBudgetType = campaign.budget_type?.toLowerCase();
-    if (rawBudgetType !== 'daily' && rawBudgetType !== 'lifetime') {
-      throw new GoogleProviderError('INVALID_BUDGET_TYPE', 'Budget type must be exactly daily or lifetime.');
+    const budgetTypeStr = normaliseBudgetType(campaign.budget_type);
+    if (!budgetTypeStr) {
+      throw new GoogleProviderError('INVALID_BUDGET_TYPE', 'Budget type must be exactly daily or total.');
     }
-    const budgetTypeStr = rawBudgetType as 'daily' | 'lifetime';
     if (Number(campaign.max_auto_budget_increase) !== 0) {
       throw new GoogleProviderError('SAFETY_VIOLATION', 'max_auto_budget_increase must be exactly 0.');
     }

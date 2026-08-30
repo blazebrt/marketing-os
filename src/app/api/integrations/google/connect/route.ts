@@ -3,7 +3,15 @@ import { createClient } from '@/lib/supabase/server';
 import { createOAuthState } from '@/lib/oauthState';
 import { OAuth2Client } from 'google-auth-library';
 import { logAudit } from '@/lib/audit';
-import { cookies } from 'next/headers';
+import { appOrigin, appUrl } from '@/lib/appUrl';
+
+const OAUTH_COOKIE = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax' as const,
+  maxAge: 60 * 10,
+  path: '/',
+};
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient();
@@ -18,12 +26,10 @@ export async function GET(req: NextRequest) {
   
   if (!clientId || !clientSecret) {
     await logAudit(user.id, 'OAUTH_FAILED', 'integration', null, null, null, 'Server configuration error');
-    return NextResponse.redirect(new URL('/integrations?error=configuration_error', req.url));
+    return NextResponse.redirect(appUrl('/integrations?error=configuration_error', req.url));
   }
 
-  const redirectUri = process.env.NEXT_PUBLIC_BASE_URL 
-    ? `${process.env.NEXT_PUBLIC_BASE_URL}/api/integrations/google/callback`
-    : 'http://localhost:3000/api/integrations/google/callback';
+  const redirectUri = `${appOrigin(req.url)}/api/integrations/google/callback`;
 
   const oauth2Client = new OAuth2Client(clientId, clientSecret, redirectUri);
 
@@ -39,14 +45,6 @@ export async function GET(req: NextRequest) {
   await logAudit(user.id, 'OAUTH_CONNECT_STARTED', 'integration', null, null, null, 'Initiating Google OAuth');
 
   const response = NextResponse.redirect(authorizeUrl);
-  
-  const cookieStore = await cookies();
-  cookieStore.set('oauth_state', rawState, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: 60 * 10
-  });
-
+  response.cookies.set('oauth_state', rawState, OAUTH_COOKIE);
   return response;
 }
