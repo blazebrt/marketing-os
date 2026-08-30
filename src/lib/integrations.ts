@@ -4,6 +4,34 @@ import { encryptCredential } from './crypto';
 import { OAuth2Client } from 'google-auth-library';
 import { logAudit } from './audit';
 
+const ENCRYPT_CREDENTIAL_FIELDS = new Set(['access_token', 'refresh_token', 'hmac_secret']);
+const PLAIN_CREDENTIAL_FIELDS = new Set(['expiry_date', 'token_type', 'scope']);
+
+/** Persist only known OAuth/webhook fields; encrypt token secrets. */
+export function sanitiseIntegrationCredentials(credentials: unknown): Record<string, unknown> | null {
+  if (!credentials || typeof credentials !== 'object' || Array.isArray(credentials)) {
+    return null;
+  }
+  const src = credentials as Record<string, unknown>;
+  const out: Record<string, unknown> = Object.create(null);
+  for (const [key, value] of Object.entries(src)) {
+    if (key === '__proto__' || key === 'prototype' || key === 'constructor') continue;
+    if (ENCRYPT_CREDENTIAL_FIELDS.has(key)) {
+      if (typeof value === 'string' && value.length > 0 && value.length <= 8192) {
+        out[key] = encryptCredential(value);
+      }
+      continue;
+    }
+    if (!PLAIN_CREDENTIAL_FIELDS.has(key)) continue;
+    if (key === 'expiry_date' && (typeof value === 'number' || typeof value === 'string')) {
+      out[key] = value;
+    } else if (typeof value === 'string' && value.length > 0 && value.length <= 512) {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
 export async function verifyGoogleConnection(tokens: { access_token: string, refresh_token?: string }): Promise<{ safe: boolean; reason?: string; accountId?: string }> {
   if (!tokens.access_token) return { safe: false, reason: 'Missing access token' };
 
@@ -48,9 +76,8 @@ export async function upsertIntegration(
 
   // 2. Insert Credentials securely to server-only table
   if (credentials) {
-    const safeCreds = { ...credentials };
-    if (safeCreds.access_token) safeCreds.access_token = encryptCredential(safeCreds.access_token);
-    if (safeCreds.refresh_token) safeCreds.refresh_token = encryptCredential(safeCreds.refresh_token);
+    const safeCreds = sanitiseIntegrationCredentials(credentials);
+    if (!safeCreds) throw new Error('Invalid credentials');
 
     const { error: credError } = await serviceClient.from('integration_credentials').upsert({
       owner_id: ownerId,
@@ -64,6 +91,9 @@ export async function upsertIntegration(
 }
 
 export async function disconnectIntegration(ownerId: string, provider: string) {
+  if (!['meta', 'google', 'whatsapp', 'instagram', 'website'].includes(provider)) {
+    throw new Error('Unknown provider');
+  }
   const standardClient = await createClient();
   const serviceClient = createServiceClient();
   

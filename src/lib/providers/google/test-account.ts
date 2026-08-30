@@ -1,5 +1,6 @@
 import { GoogleAdsApi } from 'google-ads-api';
 import { GoogleProviderError, ERROR_CODES } from './errors';
+import { gaqlIntLiteral } from './gaql';
 
 export let __MockGoogleAdsApi: any = null;
 export function __setMockGoogleAdsApi(mock: any) { __MockGoogleAdsApi = mock; }
@@ -27,8 +28,8 @@ export async function verifyTestAccount(
   }
 
   try {
-    const cleanCustomerId = customerId.replace(/-/g, '');
-    const cleanManagerId = managerId.replace(/-/g, '');
+    const cleanCustomerId = gaqlIntLiteral(customerId);
+    const cleanManagerId = gaqlIntLiteral(managerId);
 
     const ApiClass = __MockGoogleAdsApi || GoogleAdsApi;
     const client = new ApiClass({

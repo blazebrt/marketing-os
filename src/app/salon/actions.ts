@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 import { AppError, ERROR_CODES, logSafeError, toSafeError } from '@/lib/errors';
 import { SalonProfileSchema, SalonServiceSchema, SalonOfferSchema } from '@/lib/salon/schemas';
+import { isUuid } from '@/lib/ids';
 
 function safeRevalidate(path: string) {
   try {
@@ -50,6 +51,7 @@ export async function saveSalonProfile(raw: unknown) {
 export async function saveService(raw: unknown, serviceId?: string) {
   try {
     const { supabase, ownerId } = await requireOwner();
+    if (serviceId && !isUuid(serviceId)) return { ok: false as const, code: ERROR_CODES.VALIDATION_FAILED };
     const parsed = SalonServiceSchema.parse(raw);
     const row = { owner_id: ownerId, ...parsed, updated_at: new Date().toISOString() };
 
@@ -72,6 +74,7 @@ export async function saveService(raw: unknown, serviceId?: string) {
 export async function deleteService(serviceId: string) {
   try {
     const { supabase, ownerId } = await requireOwner();
+    if (!isUuid(serviceId)) return { ok: false as const, code: ERROR_CODES.VALIDATION_FAILED };
     const { error } = await supabase.from('salon_services').delete().eq('id', serviceId).eq('owner_id', ownerId);
     if (error) throw new AppError(ERROR_CODES.GENERATION_FAILED, 500);
     refresh();
@@ -85,6 +88,7 @@ export async function deleteService(serviceId: string) {
 export async function saveOffer(raw: unknown, offerId?: string) {
   try {
     const { supabase, ownerId } = await requireOwner();
+    if (offerId && !isUuid(offerId)) return { ok: false as const, code: ERROR_CODES.VALIDATION_FAILED };
     const parsed = SalonOfferSchema.parse(raw);
     const row = { owner_id: ownerId, ...parsed, updated_at: new Date().toISOString() };
 
@@ -107,6 +111,7 @@ export async function saveOffer(raw: unknown, offerId?: string) {
 export async function deleteOffer(offerId: string) {
   try {
     const { supabase, ownerId } = await requireOwner();
+    if (!isUuid(offerId)) return { ok: false as const, code: ERROR_CODES.VALIDATION_FAILED };
     const { error } = await supabase.from('salon_offers').delete().eq('id', offerId).eq('owner_id', ownerId);
     if (error) throw new AppError(ERROR_CODES.GENERATION_FAILED, 500);
     refresh();

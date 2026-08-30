@@ -6,9 +6,13 @@ import { CreativeItemRow } from './CreativeItemRow';
 import { GoogleAdsReadOnlyContextProvider } from '@/lib/providers/google/real-context';
 import { DeploymentPanel } from './DeploymentPanel';
 import { ReviewProgress, countItems } from './ReviewProgress';
+import { isUuid } from '@/lib/ids';
 
 export default async function GoogleReviewPage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
+  if (!isUuid(params.id)) {
+    return <div>Campaign not found or unauthorized</div>;
+  }
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 

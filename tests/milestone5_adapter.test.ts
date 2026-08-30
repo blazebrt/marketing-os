@@ -42,6 +42,7 @@ async function runTests() {
       max_daily_spend numeric(15, 2) not null default 1000,
       max_campaign_spend numeric(15, 2) not null default 30000,
       destination text not null default 'website',
+      landing_url text not null default 'https://example.com',
       channels text[] not null,
       creative_id uuid,
       status unified_campaign_status not null default 'DRAFT',

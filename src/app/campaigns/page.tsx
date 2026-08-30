@@ -7,7 +7,11 @@ export default async function CampaignsPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return redirect('/login');
 
-  const { data: campaigns } = await supabase.from('unified_campaigns').select('*').order('created_at', { ascending: false });
+  const { data: campaigns } = await supabase
+    .from('unified_campaigns')
+    .select('*')
+    .eq('owner_id', user.id)
+    .order('created_at', { ascending: false });
 
   return (
     <div className="p-8 max-w-7xl mx-auto">

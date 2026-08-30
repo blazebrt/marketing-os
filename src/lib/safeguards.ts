@@ -1,5 +1,6 @@
 import { createClient } from './supabase/server';
 import { logAudit } from './audit';
+import { isUuid } from './ids';
 
 export async function checkSpendingGuardrails(
   campaignId: string,
@@ -10,6 +11,9 @@ export async function checkSpendingGuardrails(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user || user.id !== actor) {
     return { safe: false, reason: 'Unauthorized. Fail-closed.' };
+  }
+  if (!isUuid(campaignId)) {
+    return { safe: false, reason: 'Campaign not found or database error. Fail-closed.' };
   }
 
   if (!Number.isFinite(proposedIncrease) || proposedIncrease <= 0) {

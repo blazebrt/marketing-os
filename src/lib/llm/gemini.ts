@@ -120,8 +120,9 @@ export async function generateAdCopy(
   // Throws if anything credential-shaped or personal reached the prompt.
   assertPromptIsSafe(prompt);
 
-  // GEMINI_BASE_URL lets the endpoint be pointed at a proxy or a stub in tests.
-  const baseUrl = process.env.GEMINI_BASE_URL;
+  // GEMINI_BASE_URL is for tests and local stubs only. Production always
+  // talks to Google's default endpoint so an env override cannot SSRF.
+  const baseUrl = process.env.NODE_ENV === 'production' ? undefined : process.env.GEMINI_BASE_URL;
   const ai = new GoogleGenAI(baseUrl ? { apiKey, httpOptions: { baseUrl } } : { apiKey });
 
   let text: string | undefined;
@@ -205,7 +206,7 @@ export async function generateStructuredJson<T>(call: StructuredCall): Promise<S
 
   assertPromptIsSafe(call.prompt);
 
-  const baseUrl = process.env.GEMINI_BASE_URL;
+  const baseUrl = process.env.NODE_ENV === 'production' ? undefined : process.env.GEMINI_BASE_URL;
   const ai = new GoogleGenAI(baseUrl ? { apiKey, httpOptions: { baseUrl } } : { apiKey });
   const model = process.env.GEMINI_MODEL || DEFAULT_MODEL;
 

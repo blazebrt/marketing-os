@@ -6,6 +6,7 @@ import { AppError, ERROR_CODES, logSafeError, toSafeError } from '@/lib/errors';
 import { refreshRecommendations } from '@/lib/analysis/recommendations';
 import { recordAiEvent } from '@/lib/ai/events';
 import { logAudit } from '@/lib/audit';
+import { isUuid } from '@/lib/ids';
 
 function safeRevalidate(path: string) {
   try { revalidatePath(path); } catch { /* no store outside a request */ }
@@ -49,6 +50,9 @@ export async function analyseNow() {
 export async function decideRecommendation(id: string, decision: 'APPROVED' | 'DISMISSED') {
   try {
     const { supabase, ownerId } = await requireOwner();
+    if (!isUuid(id) || (decision !== 'APPROVED' && decision !== 'DISMISSED')) {
+      return { ok: false as const, code: ERROR_CODES.VALIDATION_FAILED };
+    }
 
     const { data: updated, error } = await supabase
       .from('recommendations')

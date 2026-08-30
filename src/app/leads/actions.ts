@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { logAudit } from '@/lib/audit';
 import { revalidatePath } from 'next/cache';
+import { isUuid } from '@/lib/ids';
 
 const LEAD_STATUSES = ['NEW', 'CONTACTED', 'BOOKED', 'VISITED', 'PAID', 'LOST', 'UNKNOWN'] as const;
 
@@ -10,6 +11,7 @@ export async function updateLead(leadId: string, status: string, revenue: number
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Unauthorized');
+  if (!isUuid(leadId)) throw new Error('Failed to update lead');
 
   if (!LEAD_STATUSES.includes(status as (typeof LEAD_STATUSES)[number])) {
     throw new Error('Failed to update lead');
