@@ -83,7 +83,7 @@ async function main() {
   }
 
   console.log('\n--- WEBHOOK AUTH MATCHES STORAGE ---');
-  const integrationId = '11111111-1111-1111-1111-111111111111';
+  const integrationId = '11111111-1111-4111-8111-111111111111';
   __setMockServiceClient(() => ({
     from: () => ({
       select: () => ({
