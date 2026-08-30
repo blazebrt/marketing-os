@@ -46,8 +46,15 @@ async function handle(req: NextRequest) {
 
   // ?date=YYYY-MM-DD re-runs a specific day; omitted means yesterday.
   const requested = req.nextUrl.searchParams.get('date') || undefined;
-  if (requested && !/^\d{4}-\d{2}-\d{2}$/.test(requested)) {
-    return NextResponse.json({ error: 'invalid_date' }, { status: 400 });
+  if (requested) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(requested)) {
+      return NextResponse.json({ error: 'invalid_date' }, { status: 400 });
+    }
+    const t = Date.parse(`${requested}T00:00:00Z`);
+    const now = Date.now();
+    if (!Number.isFinite(t) || t > now + 86400000 || t < now - 90 * 86400000) {
+      return NextResponse.json({ error: 'invalid_date' }, { status: 400 });
+    }
   }
 
   try {

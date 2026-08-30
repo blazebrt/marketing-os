@@ -39,6 +39,23 @@ async function main() {
   const ts = Date.now().toString();
   const sig = crypto.createHmac('sha256', secret).update(ts + '.' + payload).digest('hex');
   assert(await verifyHmac(payload, sig, secret, ts) === true, 'Valid HMAC still accepted');
+  assert(await verifyHmac(payload, sig.toUpperCase(), secret, ts) === true, 'HMAC hex is compared case-insensitively');
+
+  const badIdReq = new NextRequest('http://localhost:3000/api/interactions', {
+    method: 'POST',
+    headers: {
+      'x-signature': sig,
+      'x-timestamp': ts,
+      'x-integration-id': 'not-a-uuid',
+    },
+    body: payload,
+  });
+  try {
+    await authenticateWebhook(badIdReq, payload);
+    assert(false, 'Non-UUID integration id should throw');
+  } catch {
+    assert(true, 'Non-UUID webhook integration id is rejected');
+  }
 
   console.log('\n--- CREDENTIAL STORAGE ---');
   const token = 'refresh-token-value';

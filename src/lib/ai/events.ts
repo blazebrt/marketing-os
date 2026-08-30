@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import { AppError, ERROR_CODES } from '@/lib/errors';
 
 /**
  * Observability for AI work.
@@ -44,5 +45,25 @@ export async function recordAiEvent(event: AiEvent): Promise<void> {
     });
   } catch {
     // Observability must never break the thing it observes.
+  }
+}
+
+export async function assertAiRateLimit(
+  ownerId: string,
+  eventType: AiEvent['eventType'],
+  maxPerHour: number
+): Promise<void> {
+  const supabase = await createClient();
+  const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const { count, data, error } = await supabase
+    .from('ai_events')
+    .select('id', { count: 'exact', head: true })
+    .eq('owner_id', ownerId)
+    .eq('event_type', eventType)
+    .gte('created_at', since);
+  if (error) throw new AppError(ERROR_CODES.GENERATION_FAILED, 500);
+  const n = typeof count === 'number' ? count : Array.isArray(data) ? data.length : 0;
+  if (n >= maxPerHour) {
+    throw new AppError(ERROR_CODES.RATE_LIMITED, 429);
   }
 }

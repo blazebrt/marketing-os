@@ -19,7 +19,7 @@ export default async function IntegrationsPage() {
   };
 
   const providers = [
-    { id: 'google', name: 'Google Ads', description: 'Search and Performance Max campaigns', testAccounts: 'Manager: 595-645-2500, Customer: 160-026-9431' },
+    { id: 'google', name: 'Google Ads', description: 'Search and Performance Max campaigns' },
     { id: 'meta', name: 'Meta Ads', description: 'Facebook and Instagram advertising' },
     { id: 'instagram', name: 'Instagram', description: 'Organic creative syncing' },
     { id: 'whatsapp', name: 'WhatsApp', description: 'WhatsApp Business API' },
@@ -40,8 +40,6 @@ export default async function IntegrationsPage() {
               <div>
                 <h3 className="font-semibold text-lg">{p.name}</h3>
                 <p className="text-gray-500 text-sm">{p.description}</p>
-                {p.testAccounts && <p className="text-xs text-blue-500 mt-1">V1 Bound to: {p.testAccounts}</p>}
-                
                 {meta.external_id && <p className="text-sm font-medium mt-2 text-green-700">Account: {meta.external_id}</p>}
                 {!meta.external_id && status === 'connected' && p.id === 'google' && (
                   <p className="text-sm font-medium mt-2 text-yellow-600">Google OAuth connected — Ads account verification pending</p>

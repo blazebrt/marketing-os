@@ -37,7 +37,9 @@ export async function updateSession(request: NextRequest) {
   const isPublicRoute =
     pathname.startsWith('/login') ||
     pathname === '/api/leads' ||
+    pathname === '/api/leads/' ||
     pathname === '/api/interactions' ||
+    pathname === '/api/interactions/' ||
     pathname.startsWith('/api/cron/') ||
     pathname.startsWith('/api/integrations/google/callback');
   

@@ -24,7 +24,7 @@ export async function logAudit(
     entity_id: entityId,
     before_state: beforeState,
     after_state: afterState,
-    reason,
+    reason: String(reason || '').slice(0, 300),
   });
 
   if (error) {

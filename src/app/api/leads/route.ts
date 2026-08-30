@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'crypto';
 import { authenticateWebhook } from '@/lib/webhooks/verify';
 import { LeadIngestionSchema } from '@/lib/schemas/tracking';
 import { createServiceClient } from '@/lib/supabase/service';
@@ -48,7 +49,8 @@ export async function POST(req: NextRequest) {
     if (!identity) {
       return NextResponse.json({ error: 'invalid_payload' }, { status: 400 });
     }
-    const idempotencyKey = `lead_ingest_${provider}_${identity}`;
+    const identityKey = crypto.createHash('sha256').update(identity).digest('hex').slice(0, 32);
+    const idempotencyKey = `lead_ingest_${provider}_${identityKey}`;
 
     const leadId = await withIdempotency(idempotencyKey, ownerId, 'webhook_event', async () => {
       let existingLead = null;
