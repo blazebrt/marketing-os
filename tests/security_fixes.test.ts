@@ -17,6 +17,7 @@ import { CampaignIntentSchema } from '../src/lib/schemas/campaigns';
 import { appOrigin } from '../src/lib/appUrl';
 import { campaignDisplayName, campaignLandingUrl } from '../src/lib/campaigns/fields';
 import { sanitiseIntegrationCredentials } from '../src/lib/integrations';
+import { hashLoginEmail, isLoginLocked, nextFailureState, LOGIN_THROTTLE } from '../src/lib/auth/loginThrottle';
 import { __setMockServiceClient } from '../src/lib/supabase/service';
 import { NextRequest } from 'next/server';
 
@@ -218,6 +219,20 @@ async function main() {
   assert(timingSafeEqualString('cron-secret', 'cron-secret') === true, 'Equal cron secrets match');
   assert(timingSafeEqualString('short', 'cron-secret-longer') === false, 'Length mismatch still compared safely');
   assert(timingSafeEqualString('aaa', 'bbb') === false, 'Different secrets do not match');
+
+  console.log('\n--- LOGIN THROTTLE ---');
+  const now = Date.parse('2026-08-30T12:00:00Z');
+  assert(hashLoginEmail('A@X.com') === hashLoginEmail('a@x.com'), 'Login throttle hashes emails case-insensitively');
+  assert(isLoginLocked(null, now) === false, 'Missing throttle row is not locked');
+  assert(isLoginLocked({ attempt_count: 8, window_started_at: new Date(now).toISOString(), locked_until: new Date(now + 1000).toISOString() }, now) === true, 'Active lock blocks login');
+  assert(isLoginLocked({ attempt_count: 8, window_started_at: new Date(now).toISOString(), locked_until: new Date(now - 1000).toISOString() }, now) === false, 'Expired lock does not block');
+  let state = null as ReturnType<typeof nextFailureState> | null;
+  for (let i = 0; i < LOGIN_THROTTLE.maxAttempts; i += 1) {
+    state = nextFailureState(state, now + i);
+  }
+  assert(state !== null && state.locked_until !== null, 'Eighth failed attempt locks the address');
+  const afterWindow = nextFailureState(state, now + LOGIN_THROTTLE.windowMs + 1);
+  assert(afterWindow.attempt_count === 1 && afterWindow.locked_until === null, 'A new window starts after the old one expires');
 
   console.log(`\n--- SECURITY FIXES: ${pass} PASS, ${fail} FAIL ---`);
   if (fail > 0) process.exit(1);

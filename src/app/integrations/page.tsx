@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
+import { WebsiteTracking } from './WebsiteTracking';
 
 export default async function IntegrationsPage() {
   const supabase = await createClient();
@@ -10,11 +11,16 @@ export default async function IntegrationsPage() {
   // Credentials do not exist in this table anymore.
   const { data: integrations } = await supabase
     .from('integrations')
-    .select('provider, status, external_id, last_verified_at, error_message')
+    .select('id, provider, status, external_id, last_verified_at, error_message')
     .eq('owner_id', user.id);
 
-  const getMetadata = (provider: string): any => {
-    const int = integrations?.find((i: any) => i.provider === provider);
+  const getMetadata = (provider: string): {
+    id?: string;
+    status: string;
+    external_id: string | null;
+    error_message: string | null;
+  } => {
+    const int = integrations?.find((i: { provider: string }) => i.provider === provider);
     return int || { status: 'disconnected', external_id: null, error_message: null };
   };
 
@@ -35,6 +41,21 @@ export default async function IntegrationsPage() {
         {providers.map(p => {
           const meta = getMetadata(p.id);
           const status = meta.status;
+          if (p.id === 'website') {
+            return (
+              <div key={p.id} className="border p-6 rounded-lg flex items-start justify-between gap-6 bg-white shadow-sm">
+                <div>
+                  <h3 className="font-semibold text-lg">{p.name}</h3>
+                  <p className="text-gray-500 text-sm">{p.description}</p>
+                  {meta.error_message && <p className="text-sm font-medium mt-2 text-red-600">Error: {meta.error_message}</p>}
+                </div>
+                <WebsiteTracking
+                  connected={status === 'connected'}
+                  integrationId={typeof meta.id === 'string' ? meta.id : null}
+                />
+              </div>
+            );
+          }
           return (
             <div key={p.id} className="border p-6 rounded-lg flex items-center justify-between bg-white shadow-sm">
               <div>
