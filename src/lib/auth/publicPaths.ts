@@ -9,7 +9,7 @@ export function isUnauthenticatedPublicPath(pathname: string): boolean {
   if (pathname.startsWith('/api/cron/')) return true;
   if (
     pathname === '/api/integrations/google/callback' ||
-    pathname.startsWith('/api/integrations/google/callback/')
+    pathname === '/api/integrations/google/callback/'
   ) {
     return true;
   }

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { isUnauthenticatedPublicPath } from '../src/lib/auth/publicPaths.ts';
+import { isUnauthenticatedPublicPath } from '../src/lib/auth/publicPaths';
 
 assert.equal(isUnauthenticatedPublicPath('/login'), true);
 assert.equal(isUnauthenticatedPublicPath('/login/'), true);
