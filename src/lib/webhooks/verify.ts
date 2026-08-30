@@ -1,12 +1,23 @@
 import crypto from 'crypto';
 import { NextRequest } from 'next/server';
 import { createServiceClient } from '../supabase/service';
-import { decryptCredential } from '../crypto';
+import { parseStoredCredentials, revealStoredSecret } from '../crypto';
 
 export async function verifyHmac(payload: string, signature: string, secret: string, timestamp: string): Promise<boolean> {
-  const timeDiff = Math.abs(Date.now() - parseInt(timestamp, 10));
+  if (!/^\d{1,15}$/.test(timestamp)) {
+    return false;
+  }
+  const ts = Number(timestamp);
+  if (!Number.isFinite(ts)) {
+    return false;
+  }
+  const timeDiff = Math.abs(Date.now() - ts);
   // Replay protection: 5 minute window
   if (timeDiff > 5 * 60 * 1000) {
+    return false;
+  }
+
+  if (!/^[0-9a-f]+$/i.test(signature)) {
     return false;
   }
 
@@ -15,8 +26,11 @@ export async function verifyHmac(payload: string, signature: string, secret: str
     .digest('hex');
 
   try {
-    return crypto.timingSafeEqual(Buffer.from(signature, 'hex'), Buffer.from(expectedMac, 'hex'));
-  } catch (e) {
+    const a = Buffer.from(signature, 'hex');
+    const b = Buffer.from(expectedMac, 'hex');
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
+  } catch {
     return false;
   }
 }
@@ -41,9 +55,13 @@ export async function authenticateWebhook(req: NextRequest, rawBody: string): Pr
     throw new Error('integration_not_found');
   }
 
-  const credsStr = decryptCredential(data.encrypted_credentials);
-  const creds = JSON.parse(credsStr);
-  const secret = creds.hmac_secret;
+  let creds: Record<string, unknown>;
+  try {
+    creds = parseStoredCredentials(data.encrypted_credentials);
+  } catch {
+    throw new Error('missing_secret');
+  }
+  const secret = revealStoredSecret(creds.hmac_secret);
 
   if (!secret) {
     throw new Error('missing_secret');

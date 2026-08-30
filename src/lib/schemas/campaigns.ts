@@ -12,6 +12,12 @@ export const CampaignIntentSchema = z.object({
   destination: z.string().min(1).optional(),
   target_audience: z.string().max(200, 'Target audience is too long').optional().nullable(),
   location: z.string().max(200, 'Location is too long').optional().nullable(),
-  channels: z.array(z.string()).min(1, 'At least one channel is required'),
+  channels: z.array(z.string().trim().min(1))
+    .min(1, 'At least one channel is required')
+    .transform((channels) => [...new Set(channels.map((c) => c.toLowerCase()))])
+    .refine(
+      (channels) => channels.every((c) => ['google', 'meta', 'whatsapp', 'instagram', 'website'].includes(c)),
+      'Unsupported advertising channel'
+    ),
   creative_id: z.string().optional(),
 });

@@ -6,6 +6,7 @@ import { GoogleProviderError, ERROR_CODES } from './errors';
 import { verifyTestAccount } from './test-account';
 import { GoogleTargetState } from './types';
 import { logAudit } from '../../audit';
+import { gaqlStringLiteral } from './gaql';
 
 export let __MockGoogleAdsApi: any = null;
 export function __setMockGoogleAdsApi(mock: any) { __MockGoogleAdsApi = mock; }
@@ -78,7 +79,7 @@ export async function reconcileGoogleDeployment(campaignId: string, ownerId: str
       const bRes = await customer.query(`
         SELECT campaign_budget.amount_micros, customer.id
         FROM campaign_budget 
-        WHERE campaign_budget.resource_name = '${externalState.campaignBudgetResourceName}'
+        WHERE campaign_budget.resource_name = ${gaqlStringLiteral(String(externalState.campaignBudgetResourceName))}
         LIMIT 1
       `);
       if (bRes.length === 0) {
@@ -100,7 +101,7 @@ export async function reconcileGoogleDeployment(campaignId: string, ownerId: str
       const cRes = await customer.query(`
         SELECT campaign.bidding_strategy_type, campaign_budget.resource_name, customer.id
         FROM campaign 
-        WHERE campaign.resource_name = '${externalState.campaignResourceName}'
+        WHERE campaign.resource_name = ${gaqlStringLiteral(String(externalState.campaignResourceName))}
         LIMIT 1
       `);
       if (cRes.length === 0) {
@@ -123,7 +124,7 @@ export async function reconcileGoogleDeployment(campaignId: string, ownerId: str
       const agRes = await customer.query(`
         SELECT ad_group.name, campaign.resource_name, customer.id
         FROM ad_group 
-        WHERE ad_group.resource_name = '${externalState.adGroupResourceName}'
+        WHERE ad_group.resource_name = ${gaqlStringLiteral(String(externalState.adGroupResourceName))}
         LIMIT 1
       `);
       if (agRes.length === 0) {
@@ -153,7 +154,7 @@ export async function reconcileGoogleDeployment(campaignId: string, ownerId: str
       const adRes = await customer.query(`
         SELECT ad_group_ad.ad.responsive_search_ad.headlines, ad_group_ad.ad.responsive_search_ad.descriptions, ad_group_ad.ad.final_urls, customer.id, ad_group.resource_name
         FROM ad_group_ad 
-        WHERE ad_group.resource_name = '${externalState.adGroupResourceName}'
+        WHERE ad_group.resource_name = ${gaqlStringLiteral(String(externalState.adGroupResourceName))}
       `);
       
       const expectedAdCount = 1;
@@ -191,7 +192,7 @@ export async function reconcileGoogleDeployment(campaignId: string, ownerId: str
       const kwRes = await customer.query(`
         SELECT ad_group_criterion.keyword.text, ad_group_criterion.keyword.match_type, customer.id, ad_group.resource_name, customer.id
         FROM ad_group_criterion 
-        WHERE ad_group.resource_name = '${externalState.adGroupResourceName}' AND ad_group_criterion.type = 'KEYWORD'
+        WHERE ad_group.resource_name = ${gaqlStringLiteral(String(externalState.adGroupResourceName))} AND ad_group_criterion.type = 'KEYWORD'
       `);
       
       const actualKeywords = kwRes.map((r: any) => ({

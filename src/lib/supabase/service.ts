@@ -12,5 +12,7 @@ export function createServiceClient() {
     throw new Error('Missing Supabase Service Role credentials');
   }
   
-  return createClient(url, serviceRoleKey);
+  return createClient(url, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
 }

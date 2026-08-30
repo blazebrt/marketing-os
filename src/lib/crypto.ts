@@ -27,13 +27,54 @@ export function decryptCredential(text: string): string {
   const key = getEncryptionKey();
   const parts = text.split(':');
   if (parts.length !== 3) throw new Error('Invalid encrypted format');
+  if (!/^[0-9a-f]+$/i.test(parts[0]) || !/^[0-9a-f]+$/i.test(parts[1]) || !/^[0-9a-f]+$/i.test(parts[2])) {
+    throw new Error('Invalid encrypted format');
+  }
   const iv = Buffer.from(parts[0], 'hex');
   const authTag = Buffer.from(parts[1], 'hex');
   const encryptedText = parts[2];
-  
+  if (iv.length !== 16 || authTag.length !== 16) {
+    throw new Error('Invalid encrypted format');
+  }
+
   const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
   decipher.setAuthTag(authTag);
   let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
   decrypted += decipher.final('utf8');
   return decrypted;
 }
+
+/** True when a string looks like encryptCredential() output. */
+export function looksEncrypted(value: string): boolean {
+  const parts = value.split(':');
+  return parts.length === 3 && parts.every((p) => /^[0-9a-f]+$/i.test(p) && p.length > 0);
+}
+
+/**
+ * Credentials are stored as JSON with individually encrypted token fields
+ * (upsertIntegration). Older rows may be a single encryptCredential() blob.
+ */
+export function parseStoredCredentials(stored: string): Record<string, unknown> {
+  const trimmed = stored.trim();
+  if (trimmed.startsWith('{')) {
+    const parsed = JSON.parse(trimmed);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('Invalid encrypted format');
+    }
+    return parsed as Record<string, unknown>;
+  }
+  return JSON.parse(decryptCredential(trimmed)) as Record<string, unknown>;
+}
+
+export function revealStoredSecret(value: unknown): string | null {
+  if (typeof value !== 'string' || !value) return null;
+  if (looksEncrypted(value)) {
+    try {
+      return decryptCredential(value);
+    } catch {
+      return null;
+    }
+  }
+  return value;
+}
+
