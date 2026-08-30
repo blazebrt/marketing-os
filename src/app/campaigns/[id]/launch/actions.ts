@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { logAudit } from '@/lib/audit';
 import { AppError, ERROR_CODES, logSafeError, toSafeError } from '@/lib/errors';
 import { normaliseGoogleCampaignId } from '@/lib/campaigns/launchSheet';
+import { isUuid } from '@/lib/ids';
 
 function safeRevalidate(path: string) {
   try {
@@ -27,6 +28,9 @@ export async function recordGoogleCampaignId(campaignId: string, rawGoogleId: st
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new AppError(ERROR_CODES.UNAUTHORIZED, 401);
+    if (!isUuid(campaignId)) {
+      return { ok: false as const, code: ERROR_CODES.VALIDATION_FAILED };
+    }
 
     const googleCampaignId = normaliseGoogleCampaignId(rawGoogleId);
     if (!googleCampaignId) {

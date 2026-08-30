@@ -7,13 +7,16 @@ import {
   parseStoredCredentials,
   revealStoredSecret,
   decryptNamedSecret,
+  timingSafeEqualString,
 } from '../src/lib/crypto';
 import { isUuid } from '../src/lib/ids';
 import { InteractionSchema } from '../src/lib/schemas/tracking';
 import { calculateSafetyLimits, normaliseBudgetType } from '../src/lib/campaigns/safeguards';
-import { gaqlStringLiteral } from '../src/lib/providers/google/gaql';
+import { gaqlIntLiteral, gaqlStringLiteral } from '../src/lib/providers/google/gaql';
 import { CampaignIntentSchema } from '../src/lib/schemas/campaigns';
 import { appOrigin } from '../src/lib/appUrl';
+import { campaignDisplayName, campaignLandingUrl } from '../src/lib/campaigns/fields';
+import { sanitiseIntegrationCredentials } from '../src/lib/integrations';
 import { __setMockServiceClient } from '../src/lib/supabase/service';
 import { NextRequest } from 'next/server';
 
@@ -147,6 +150,13 @@ async function main() {
 
   assert(gaqlStringLiteral("MKTOS-E2E-abc-BUDGET") === "'MKTOS-E2E-abc-BUDGET'", 'Safe GAQL names are quoted');
   assert(gaqlStringLiteral("O'Brien") === "'O\\'Brien'", 'Quotes in GAQL literals are escaped');
+  assert(gaqlIntLiteral('123-456-7890') === '1234567890', 'Google customer ids are digit-only in GAQL');
+  try {
+    gaqlIntLiteral("1; SELECT");
+    assert(false, 'Non-digit GAQL integers should throw');
+  } catch {
+    assert(true, 'Non-digit GAQL integers are rejected');
+  }
   try {
     gaqlStringLiteral("x\nOR 1=1");
     assert(false, 'Newlines in GAQL should throw');
@@ -160,6 +170,37 @@ async function main() {
   assert(appOrigin('http://evil.example/login') === 'https://marketing.example.com', 'Redirects use configured base URL, not Host');
   if (prev === undefined) delete process.env.NEXT_PUBLIC_BASE_URL;
   else process.env.NEXT_PUBLIC_BASE_URL = prev;
+
+  console.log('\n--- DEPLOY FIELDS AND CREDENTIAL WHITELIST ---');
+  assert(campaignDisplayName({ service: 'Keratin' }) === 'Keratin', 'Ad group name uses campaign service');
+  assert(campaignDisplayName({}) === 'Campaign', 'Missing service falls back to Campaign');
+  assert(
+    campaignLandingUrl({ landing_url: 'https://salon.example.com', destination: 'WEBSITE' }) === 'https://salon.example.com',
+    'Landing URL is used instead of destination type'
+  );
+  assert(campaignLandingUrl({ destination: 'WEBSITE' }) === null, 'Destination type alone is not a URL');
+  assert(
+    campaignLandingUrl({ destination: 'https://legacy.example.com/book' }) === 'https://legacy.example.com/book',
+    'Legacy URL stored in destination still resolves'
+  );
+
+  process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || crypto.randomBytes(32).toString('base64');
+  const sanitised = sanitiseIntegrationCredentials({
+    access_token: 'ya29.access',
+    refresh_token: '1//refresh',
+    id_token: 'eyJhbGciOi.should-not-store',
+    scope: 'https://www.googleapis.com/auth/adwords',
+    expiry_date: 1700000000000,
+    extra_secret: 'drop-me',
+  });
+  assert(sanitised !== null && typeof sanitised.access_token === 'string', 'Access token is kept and encrypted');
+  assert(sanitised !== null && !('id_token' in sanitised), 'id_token is not persisted');
+  assert(sanitised !== null && !('extra_secret' in sanitised), 'Unknown credential fields are dropped');
+  assert(sanitised !== null && sanitised.scope === 'https://www.googleapis.com/auth/adwords', 'OAuth scope is kept');
+
+  assert(timingSafeEqualString('cron-secret', 'cron-secret') === true, 'Equal cron secrets match');
+  assert(timingSafeEqualString('short', 'cron-secret-longer') === false, 'Length mismatch still compared safely');
+  assert(timingSafeEqualString('aaa', 'bbb') === false, 'Different secrets do not match');
 
   console.log(`\n--- SECURITY FIXES: ${pass} PASS, ${fail} FAIL ---`);
   if (fail > 0) process.exit(1);

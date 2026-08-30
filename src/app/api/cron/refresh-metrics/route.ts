@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import crypto from 'crypto';
 import { refreshAllConnectedAccounts } from '@/lib/metrics/sync';
 import { logSafeError } from '@/lib/errors';
+import { timingSafeEqualString } from '@/lib/crypto';
 
 /**
  * Nightly refresh of yesterday's Google Ads metrics for every connected
@@ -21,10 +21,7 @@ export const maxDuration = 300;
 
 /** Constant-time compare, so a wrong secret leaks nothing through timing. */
 function secretMatches(provided: string, expected: string): boolean {
-  const a = Buffer.from(provided);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length) return false;
-  return crypto.timingSafeEqual(a, b);
+  return timingSafeEqualString(provided, expected);
 }
 
 function isAuthorized(req: NextRequest): boolean {

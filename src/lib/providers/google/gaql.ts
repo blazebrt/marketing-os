@@ -11,3 +11,12 @@ export function gaqlStringLiteral(value: string): string {
   }
   return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 }
+
+/** Customer / manager ids in GAQL must be digits only — never interpolated raw. */
+export function gaqlIntLiteral(value: string): string {
+  const clean = value.replace(/-/g, '');
+  if (!/^\d{1,20}$/.test(clean)) {
+    throw new Error('Invalid GAQL integer');
+  }
+  return clean;
+}

@@ -4,6 +4,7 @@ import { GoogleTargetState, GoogleCreativeItem } from './types';
 import { GoogleAccountContextProvider } from './context';
 import { GoogleAdsReadOnlyContextProvider } from './real-context';
 import { parseDestinationType } from '@/lib/campaigns/destination';
+import { campaignDisplayName, requireCampaignLandingUrl } from '@/lib/campaigns/fields';
 
 export async function prepareGoogleDeployment(
   supabase: any,
@@ -19,6 +20,7 @@ export async function prepareGoogleDeployment(
     .from('unified_campaigns')
     .select('*')
     .eq('id', campaignId)
+    .eq('owner_id', user.id)
     .single();
 
   if (campaignErr || !campaign) throw new Error('Campaign not found or unauthorized');
@@ -57,6 +59,7 @@ export async function prepareGoogleDeployment(
     .select('*')
     .eq('campaign_id', campaignId)
     .eq('provider', 'google')
+    .eq('owner_id', user.id)
     .single();
 
   if (!deployment) {
@@ -82,6 +85,7 @@ export async function prepareGoogleDeployment(
     .from('creatives_google')
     .select('*')
     .eq('creative_id', campaign.creative_id)
+    .eq('owner_id', user.id)
     .single();
 
   if (!creativeGoogle) {
@@ -99,13 +103,13 @@ export async function prepareGoogleDeployment(
 
   // 7. Validate budget and destination
   if (campaign.budget_amount <= 0) throw new Error('Budget invalid');
-  if (!campaign.destination) throw new Error('Destination invalid');
+  const landingUrl = requireCampaignLandingUrl(campaign);
 
-  // 8. Validate AI-generated items are approved and valid
+  // 8. Validate items are approved and valid
   // Ensure uniqueness
   const seenHeadlines = new Set();
   for (const hl of headlines) {
-    if (!hl.owner_approved) throw new Error('AI-generated headline unapproved');
+    if (hl.owner_approved !== true) throw new Error('Headline unapproved');
     const errs = validateHeadline(hl);
     if (errs.length > 0) throw new Error(`Invalid headline: ${errs.join(', ')}`);
     
@@ -116,7 +120,7 @@ export async function prepareGoogleDeployment(
 
   const seenDescriptions = new Set();
   for (const desc of descriptions) {
-    if (!desc.owner_approved) throw new Error('AI-generated description unapproved');
+    if (desc.owner_approved !== true) throw new Error('Description unapproved');
     const errs = validateDescription(desc);
     if (errs.length > 0) throw new Error(`Invalid description: ${errs.join(', ')}`);
 
@@ -127,7 +131,7 @@ export async function prepareGoogleDeployment(
 
   const seenKeywords = new Set();
   for (const kw of keywords) {
-    if (!kw.owner_approved) throw new Error('AI-generated keyword unapproved');
+    if (kw.owner_approved !== true) throw new Error('Keyword unapproved');
     const errs = validateKeyword(kw);
     if (errs.length > 0) throw new Error(`Invalid keyword: ${errs.join(', ')}`);
     
@@ -145,6 +149,8 @@ export async function prepareGoogleDeployment(
     throw new Error('Strategy context invalid');
   }
 
+  const adGroupName = `${campaignDisplayName(campaign)} - Google`;
+
   // 10. Construct target_state atomically in-memory (NO SECRETS EXPOSED)
   const targetState: GoogleTargetState = {
     schemaVersion: 'v1',
@@ -153,7 +159,7 @@ export async function prepareGoogleDeployment(
       id: campaign.id,
       budget: campaign.budget_amount,
       duration: campaign.duration_days,
-      destination: campaign.destination
+      destination: landingUrl
     },
     bidding: {
       strategy: strategyRecommendation.strategy,
@@ -162,14 +168,14 @@ export async function prepareGoogleDeployment(
       safetyConstraints: strategyRecommendation.safetyConstraints
     },
     adGroup: {
-      name: `${campaign.name} - Google`,
+      name: adGroupName,
       type: 'SEARCH_STANDARD'
     },
     keywords,
     headlines,
     descriptions,
     destination: {
-      url: campaign.destination,
+      url: landingUrl,
       tracking: 'utm_source=google&utm_medium=cpc'
     },
     generatedAt: new Date().toISOString()
@@ -183,10 +189,11 @@ export async function prepareGoogleDeployment(
       updated_at: new Date().toISOString()
     })
     .eq('campaign_id', campaign.id)
-    .eq('provider', 'google');
+    .eq('provider', 'google')
+    .eq('owner_id', user.id);
 
   if (updateErr) {
-    throw new Error('Failed to persist target_state: ' + updateErr.message);
+    throw new Error('Failed to persist target_state');
   }
 
   // Audit event

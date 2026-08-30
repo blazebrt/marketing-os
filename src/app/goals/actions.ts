@@ -12,6 +12,7 @@ import { MarketingPlanSchema, type MarketingPlan } from '@/lib/strategy/schema';
 import { recordAiEvent } from '@/lib/ai/events';
 import { saveDraftCampaign } from '@/app/campaigns/actions';
 import { logAudit } from '@/lib/audit';
+import { isUuid } from '@/lib/ids';
 
 function safeRevalidate(path: string) {
   try { revalidatePath(path); } catch { /* no store outside a request */ }
@@ -138,6 +139,7 @@ export async function createGoalAndPlan(raw: unknown) {
 export async function rejectPlan(planId: string, reason?: string) {
   try {
     const { supabase, ownerId } = await requireOwner();
+    if (!isUuid(planId)) return { ok: false as const, code: ERROR_CODES.VALIDATION_FAILED };
     const { error } = await supabase
       .from('marketing_plans')
       .update({ status: 'REJECTED', rejected_reason: (reason || '').slice(0, 300) || null, updated_at: new Date().toISOString() })
@@ -164,6 +166,7 @@ export async function rejectPlan(planId: string, reason?: string) {
 export async function approvePlanAndCreateCampaign(planId: string, landingUrl?: string) {
   try {
     const { supabase, ownerId } = await requireOwner();
+    if (!isUuid(planId)) return { ok: false as const, code: ERROR_CODES.VALIDATION_FAILED };
 
     const { data: planRow } = await supabase
       .from('marketing_plans')

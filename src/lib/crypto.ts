@@ -89,3 +89,16 @@ export function decryptNamedSecret(stored: string, field: string): string {
   return value;
 }
 
+/**
+ * Compare secrets without leaking length via an early return from
+ * timingSafeEqual. Hashing both sides first makes the compared buffers
+ * always 32 bytes.
+ */
+export function timingSafeEqualString(provided: string, expected: string): boolean {
+  if (typeof provided !== 'string' || typeof expected !== 'string') return false;
+  if (provided.length > 4096 || expected.length > 4096) return false;
+  const a = crypto.createHash('sha256').update(provided, 'utf8').digest();
+  const b = crypto.createHash('sha256').update(expected, 'utf8').digest();
+  return crypto.timingSafeEqual(a, b);
+}
+

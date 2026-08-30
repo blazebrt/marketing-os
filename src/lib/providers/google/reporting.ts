@@ -2,6 +2,7 @@ import { GoogleAdsApi } from 'google-ads-api';
 import { createServiceClient } from '@/lib/supabase/service';
 import { decryptNamedSecret } from '@/lib/crypto';
 import { logSafeError } from '@/lib/errors';
+import { gaqlIntLiteral, gaqlStringLiteral } from './gaql';
 
 /**
  * Read-only Google Ads reporting.
@@ -139,18 +140,23 @@ export async function createReportingCustomer(
     .eq('provider', 'google')
     .single();
 
-  const customerId = (
-    integrationRow?.external_id ||
-    process.env.GOOGLE_ADS_CUSTOMER_ID ||
-    process.env.GOOGLE_ADS_TEST_CUSTOMER_ID ||
-    ''
-  ).replace(/-/g, '');
-
-  const loginCustomerId = (
-    process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID ||
-    process.env.GOOGLE_ADS_TEST_MANAGER_ID ||
-    ''
-  ).replace(/-/g, '');
+  let customerId: string;
+  let loginCustomerId = '';
+  try {
+    customerId = gaqlIntLiteral(
+      integrationRow?.external_id ||
+      process.env.GOOGLE_ADS_CUSTOMER_ID ||
+      process.env.GOOGLE_ADS_TEST_CUSTOMER_ID ||
+      ''
+    );
+    const loginRaw =
+      process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID ||
+      process.env.GOOGLE_ADS_TEST_MANAGER_ID ||
+      '';
+    if (loginRaw) loginCustomerId = gaqlIntLiteral(loginRaw);
+  } catch {
+    throw new GoogleReportingError(REPORTING_ERRORS.CONFIG_MISSING);
+  }
 
   const developerToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
   const clientId = process.env.GOOGLE_CLIENT_ID;
@@ -212,7 +218,7 @@ export async function fetchDailyCampaignMetrics(
       metrics.clicks,
       metrics.conversions
     FROM campaign
-    WHERE segments.date BETWEEN '${from}' AND '${to}'
+    WHERE segments.date BETWEEN ${gaqlStringLiteral(from)} AND ${gaqlStringLiteral(to)}
   `;
 
   let rows: Record<string, unknown>[];

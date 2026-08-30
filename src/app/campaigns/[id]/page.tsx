@@ -3,10 +3,12 @@ import { redirect } from 'next/navigation';
 import { verifyCampaign } from '../actions';
 import { GenerateCreativesButton } from './GenerateCreativesButton';
 import { VerificationPanel } from './VerificationPanel';
+import { isUuid } from '@/lib/ids';
 
 export default async function CampaignDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = await params;
   const id = resolvedParams.id;
+  if (!isUuid(id)) return redirect('/campaigns');
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();

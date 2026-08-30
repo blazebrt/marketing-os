@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import crypto from 'crypto';
 import { createClient } from '@/lib/supabase/server';
 import { OAuth2Client } from 'google-auth-library';
 import { upsertIntegration, verifyGoogleConnection } from '@/lib/integrations';
@@ -8,12 +7,10 @@ import { withIdempotency } from '@/lib/idempotency';
 import { consumeOAuthState } from '@/lib/oauthState';
 import { appOrigin, appUrl } from '@/lib/appUrl';
 import { cookies } from 'next/headers';
+import { timingSafeEqualString } from '@/lib/crypto';
 
 function statesMatch(a: string, b: string): boolean {
-  const left = Buffer.from(a);
-  const bBuf = Buffer.from(b);
-  if (left.length !== bBuf.length) return false;
-  return crypto.timingSafeEqual(left, bBuf);
+  return timingSafeEqualString(a, b);
 }
 
 function clearOauthCookie(response: NextResponse) {

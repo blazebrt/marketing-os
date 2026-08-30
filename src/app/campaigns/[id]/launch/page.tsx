@@ -4,11 +4,13 @@ import Link from 'next/link';
 import { buildLaunchSheet, type LaunchCampaign } from '@/lib/campaigns/launchSheet';
 import { CopyBlock } from './CopyBlock';
 import { RecordCampaignId } from './RecordCampaignId';
+import { isUuid } from '@/lib/ids';
 
 export const dynamic = 'force-dynamic';
 
 export default async function LaunchPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  if (!isUuid(id)) return redirect('/campaigns');
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return redirect('/login');

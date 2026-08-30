@@ -17,6 +17,7 @@ import { deployGoogleCampaign } from '@/lib/providers/google/deployment';
 import { reconcileGoogleDeployment } from '@/lib/providers/google/reconciliation';
 import { googleAdsDestinationRejection, parseDestinationType } from '@/lib/campaigns/destination';
 import { regenerateSingleItem } from '@/lib/providers/google/generative';
+import { isUuid } from '@/lib/ids';
 
 function safeRevalidate(path: string) {
   try {
@@ -57,6 +58,10 @@ export async function updateGoogleCreativeItem(
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new AppError(ERROR_CODES.UNAUTHORIZED, 401);
+
+  if (!isUuid(campaignId) || !isUuid(creativeId) || !isUuid(itemId)) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, 400);
+  }
 
   if (!isCreativeItemType(itemType)) {
     throw new AppError(ERROR_CODES.VALIDATION_FAILED, 400);
@@ -207,6 +212,7 @@ export async function deployToTestAccount(campaignId: string) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new AppError(ERROR_CODES.UNAUTHORIZED, 401);
+  if (!isUuid(campaignId)) throw new AppError(ERROR_CODES.VALIDATION_FAILED, 400);
 
   const { data: campaign } = await supabase
     .from('unified_campaigns')
@@ -242,6 +248,7 @@ export async function reconcileDeployment(campaignId: string) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new AppError(ERROR_CODES.UNAUTHORIZED, 401);
+  if (!isUuid(campaignId)) throw new AppError(ERROR_CODES.VALIDATION_FAILED, 400);
 
   const result = await reconcileGoogleDeployment(campaignId, user.id);
   safeRevalidate(`/campaigns/${campaignId}/google`);
@@ -258,7 +265,7 @@ export async function regenerateGoogleCreativeItem(
   itemType: string,
   itemId: string
 ) {
-  if (!isCreativeItemType(itemType)) {
+  if (!isUuid(campaignId) || !isUuid(itemId) || !isCreativeItemType(itemType)) {
     return { ok: false as const, code: ERROR_CODES.VALIDATION_FAILED };
   }
   try {

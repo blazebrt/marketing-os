@@ -49,7 +49,7 @@ async function runPreflightTests() {
     (process.env as any).GOOGLE_ADS_DEVELOPER_TOKEN = 'valid-token';
     (process.env as any).GOOGLE_CLIENT_ID = 'valid-client';
     (process.env as any).GOOGLE_CLIENT_SECRET = 'valid-secret';
-    (process.env as any).GOOGLE_ADS_TEST_MANAGER_ID = 'manager-id';
+    (process.env as any).GOOGLE_ADS_TEST_MANAGER_ID = '1234567890';
     delete process.env.TEST_ACCOUNT_FAIL;
     delete process.env.TEST_ACCOUNT_FALSE;
   };
