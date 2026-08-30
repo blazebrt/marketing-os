@@ -4,11 +4,17 @@ import { LeadIngestionSchema } from '@/lib/schemas/tracking';
 import { createServiceClient } from '@/lib/supabase/service';
 import { withIdempotency } from '@/lib/idempotency';
 
+const MAX_WEBHOOK_BYTES = 32 * 1024;
+
 export async function POST(req: NextRequest) {
   let rawBody: string;
   try {
     rawBody = await req.text();
   } catch {
+    return NextResponse.json({ error: 'invalid_payload' }, { status: 400 });
+  }
+
+  if (rawBody.length > MAX_WEBHOOK_BYTES) {
     return NextResponse.json({ error: 'invalid_payload' }, { status: 400 });
   }
 

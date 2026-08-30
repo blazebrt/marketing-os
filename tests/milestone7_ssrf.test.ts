@@ -42,6 +42,8 @@ async function run() {
   assert(classifyAddress('::ffff:127.0.0.1') === 'blocked', 'classify IPv4-mapped loopback blocked');
   assert(classifyAddress('::ffff:169.254.169.254') === 'blocked', 'classify IPv4-mapped metadata blocked');
   assert(classifyAddress('::ffff:10.0.0.1') === 'blocked', 'classify IPv4-mapped 10/8 blocked');
+  assert(classifyAddress('::127.0.0.1') === 'blocked', 'classify IPv4-compatible loopback blocked');
+  assert(classifyAddress('::169.254.169.254') === 'blocked', 'classify IPv4-compatible metadata blocked');
 
   const blocked = [
     'https://localhost/',
@@ -53,6 +55,7 @@ async function run() {
     'https://metadata.google.internal/',
     'https://[::1]/',
     'https://[::ffff:127.0.0.1]/',
+    'https://[::127.0.0.1]/',
     'https://[fd00::1]/',
     'https://[fe80::1]/',
     'https://100.64.1.1/',

@@ -20,6 +20,7 @@ export default async function GoogleReviewPage(props: { params: Promise<{ id: st
     .from('unified_campaigns')
     .select('*')
     .eq('id', params.id)
+    .eq('owner_id', user.id)
     .single();
 
   if (!campaign || campaign.owner_id !== user.id) {
@@ -32,6 +33,7 @@ export default async function GoogleReviewPage(props: { params: Promise<{ id: st
       .from('creatives_google')
       .select('*')
       .eq('creative_id', campaign.creative_id)
+      .eq('owner_id', user.id)
       .single();
     creativeGoogle = data;
   }
@@ -53,8 +55,8 @@ export default async function GoogleReviewPage(props: { params: Promise<{ id: st
   try {
     const contextProvider = new GoogleAdsReadOnlyContextProvider();
     strategyContext = await contextProvider.getStrategyContext(user.id);
-  } catch (e: any) {
-    targetStateError = e.message;
+  } catch {
+    targetStateError = 'GOOGLE_CONTEXT_UNAVAILABLE';
   }
 
   let deploymentState = null;
@@ -63,6 +65,7 @@ export default async function GoogleReviewPage(props: { params: Promise<{ id: st
     .select('*')
     .eq('campaign_id', campaign.id)
     .eq('provider', 'google')
+    .eq('owner_id', user.id)
     .single();
   if (depData) {
     deploymentState = depData;

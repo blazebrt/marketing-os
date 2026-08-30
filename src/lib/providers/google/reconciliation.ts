@@ -1,7 +1,7 @@
 import { createClient as createServerClient } from '../../supabase/server';
 import { createServiceClient } from '../../supabase/service';
 import { GoogleAdsApi } from 'google-ads-api';
-import { decryptCredential } from '../../crypto';
+import { decryptNamedSecret } from '../../crypto';
 import { GoogleProviderError, ERROR_CODES } from './errors';
 import { verifyTestAccount } from './test-account';
 import { GoogleTargetState } from './types';
@@ -39,8 +39,7 @@ export async function reconcileGoogleDeployment(campaignId: string, ownerId: str
 
   if (credError || !creds) throw new GoogleProviderError(ERROR_CODES.AUTH_FAILED, 'Missing credentials');
 
-  const decrypted = JSON.parse(creds.encrypted_credentials);
-  const refreshToken = decryptCredential(decrypted.refresh_token);
+  const refreshToken = decryptNamedSecret(creds.encrypted_credentials, 'refresh_token');
 
   const verifiedCustomerId = await verifyTestAccount(
     process.env.GOOGLE_ADS_DEVELOPER_TOKEN!,

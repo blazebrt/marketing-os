@@ -1,7 +1,7 @@
 import { authorizeGoogleTestMutation } from './mutation-gate';
 import { createServiceClient } from '../../supabase/service';
 import { createClient as createServerClient } from '../../supabase/server';
-import { decryptCredential } from '../../crypto';
+import { decryptNamedSecret } from '../../crypto';
 import { GoogleAdsMutationClient } from './client';
 import { GoogleProviderError, ERROR_CODES } from './errors';
 import { logAudit } from '../../audit';
@@ -91,8 +91,7 @@ export async function deployGoogleCampaign(campaignId: string, ownerId: string):
 
     if (credError || !creds) throw new GoogleProviderError(ERROR_CODES.AUTH_FAILED, 'Google integration credentials missing');
 
-    const decrypted = JSON.parse(creds.encrypted_credentials);
-    const refreshToken = decryptCredential(decrypted.refresh_token);
+    const refreshToken = decryptNamedSecret(creds.encrypted_credentials, 'refresh_token');
 
     
     

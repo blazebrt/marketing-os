@@ -6,7 +6,10 @@ import {
   decryptCredential,
   parseStoredCredentials,
   revealStoredSecret,
+  decryptNamedSecret,
 } from '../src/lib/crypto';
+import { isUuid } from '../src/lib/ids';
+import { InteractionSchema } from '../src/lib/schemas/tracking';
 import { calculateSafetyLimits, normaliseBudgetType } from '../src/lib/campaigns/safeguards';
 import { gaqlStringLiteral } from '../src/lib/providers/google/gaql';
 import { CampaignIntentSchema } from '../src/lib/schemas/campaigns';
@@ -43,6 +46,11 @@ async function main() {
   const parsed = parseStoredCredentials(jsonStored);
   assert(revealStoredSecret(parsed.refresh_token) === token, 'JSON credential blob decrypts token fields');
   assert(revealStoredSecret(parsed.hmac_secret) === secret, 'JSON credential blob decrypts hmac_secret');
+  assert(decryptNamedSecret(jsonStored, 'refresh_token') === token, 'decryptNamedSecret reads encrypted token fields');
+
+  const cleaned = parseStoredCredentials('{"refresh_token":"plain","__proto__":{"admin":true}}');
+  assert(Object.prototype.hasOwnProperty.call(cleaned, 'refresh_token'), 'Credential parse keeps own fields');
+  assert(!Object.prototype.hasOwnProperty.call(cleaned, '__proto__'), 'Credential parse drops __proto__');
 
   const legacy = encryptCredential(JSON.stringify({ hmac_secret: 'plain-hmac' }));
   assert(parseStoredCredentials(legacy).hmac_secret === 'plain-hmac', 'Legacy whole-blob encryption still parses');
@@ -120,6 +128,22 @@ async function main() {
     channels: ['not-a-network'],
   });
   assert(junk.success === false, 'Unknown channels are rejected');
+
+  const tooLong = CampaignIntentSchema.safeParse({
+    service: 'K'.repeat(200),
+    offer: '20% off',
+    budget_type: 'daily',
+    budget_amount: 500,
+    duration_days: 14,
+    destination_type: 'WEBSITE',
+    channels: ['google'],
+  });
+  assert(tooLong.success === false, 'Over-long campaign service is rejected');
+
+  assert(isUuid('11111111-1111-4111-8111-111111111111') === true, 'Valid UUID is accepted');
+  assert(isUuid('not-a-uuid') === false, 'Non-UUID campaign ids are rejected');
+  assert(InteractionSchema.safeParse({ session_id: 's1', interaction_type: 'website_visit' }).success === true, 'Bounded interaction payload accepted');
+  assert(InteractionSchema.safeParse({ session_id: 's'.repeat(200), interaction_type: 'website_visit' }).success === false, 'Over-long session_id is rejected');
 
   assert(gaqlStringLiteral("MKTOS-E2E-abc-BUDGET") === "'MKTOS-E2E-abc-BUDGET'", 'Safe GAQL names are quoted');
   assert(gaqlStringLiteral("O'Brien") === "'O\\'Brien'", 'Quotes in GAQL literals are escaped');

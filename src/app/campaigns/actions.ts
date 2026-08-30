@@ -9,6 +9,7 @@ import { googleCreativeApprovalErrors } from '@/lib/providers/google/validation'
 import { googleAdsDestinationRejection, parseDestinationType } from '@/lib/campaigns/destination';
 import { validateDestinationUrl, validateDestinationUrlSyntax } from '@/lib/urlValidator';
 import { AppError, ERROR_CODES, logSafeError, toSafeError } from '@/lib/errors';
+import { isUuid } from '@/lib/ids';
 
 function safeRevalidate(path: string) {
   try {
@@ -25,7 +26,9 @@ export async function saveDraftCampaign(payload: unknown) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new AppError(ERROR_CODES.UNAUTHORIZED, 401);
 
-  const parsed = CampaignIntentSchema.parse(payload);
+  const parsedResult = CampaignIntentSchema.safeParse(payload);
+  if (!parsedResult.success) throw new AppError(ERROR_CODES.VALIDATION_FAILED, 400);
+  const parsed = parsedResult.data;
   const limits = calculateSafetyLimits(parsed.budget_type, parsed.budget_amount, parsed.duration_days);
   const destinationType = parsed.destination_type;
   const landingUrl = destinationType === 'WEBSITE' ? (parsed.landing_url || '').trim() : null;
@@ -61,6 +64,7 @@ export async function saveDraftCampaign(payload: unknown) {
 }
 
 export async function verifyCampaign(campaignId: string, options?: { checkReachability?: boolean }) {
+  if (!isUuid(campaignId)) throw new AppError(ERROR_CODES.VALIDATION_FAILED, 400);
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new AppError(ERROR_CODES.UNAUTHORIZED, 401);
@@ -175,6 +179,7 @@ export async function verifyCampaign(campaignId: string, options?: { checkReacha
 }
 
 export async function requestApproval(campaignId: string) {
+  if (!isUuid(campaignId)) throw new AppError(ERROR_CODES.VALIDATION_FAILED, 400);
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new AppError(ERROR_CODES.UNAUTHORIZED, 401);
@@ -199,6 +204,7 @@ export async function requestApproval(campaignId: string) {
 }
 
 export async function approveCampaign(campaignId: string) {
+  if (!isUuid(campaignId)) throw new AppError(ERROR_CODES.VALIDATION_FAILED, 400);
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new AppError(ERROR_CODES.UNAUTHORIZED, 401);
@@ -219,6 +225,7 @@ export async function approveCampaign(campaignId: string) {
 }
 
 export async function generateCreativesAction(campaignId: string) {
+  if (!isUuid(campaignId)) return { ok: false as const, code: ERROR_CODES.VALIDATION_FAILED };
   const { generateAndSaveGoogleCreatives } = await import('@/lib/providers/google/generative');
   try {
     const result = await generateAndSaveGoogleCreatives(campaignId);

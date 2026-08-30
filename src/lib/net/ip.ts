@@ -96,11 +96,18 @@ function ipv6InCidr(ip: bigint, prefix: bigint, bits: number): boolean {
 const V4_MAPPED = parseIPv6('::ffff:0:0')!;
 const NAT64 = parseIPv6('64:ff9b::')!;
 const SIXTO4 = parseIPv6('2002::')!;
+const TEREDO = parseIPv6('2001::')!;
 
 export function extractEmbeddedIPv4(ipv6: bigint): number | null {
   if (ipv6InCidr(ipv6, V4_MAPPED, 96)) return Number(ipv6 & BigInt('0xffffffff'));
   if (ipv6InCidr(ipv6, NAT64, 96)) return Number(ipv6 & BigInt('0xffffffff'));
   if (ipv6InCidr(ipv6, SIXTO4, 16)) return Number((ipv6 >> BigInt(80)) & BigInt('0xffffffff'));
+  // Deprecated IPv4-compatible ::a.b.c.d (not ::ffff:mapped).
+  if (ipv6InCidr(ipv6, BigInt(0), 96)) return Number(ipv6 & BigInt('0xffffffff'));
+  // Teredo 2001:0000::/32 encodes the client IPv4 in the last 32 bits, XOR 0xffffffff.
+  if (ipv6InCidr(ipv6, TEREDO, 32)) {
+    return (Number(ipv6 & BigInt('0xffffffff')) ^ 0xffffffff) >>> 0;
+  }
   return null;
 }
 

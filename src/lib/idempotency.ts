@@ -67,15 +67,15 @@ export async function withIdempotency<T>(
       updated_at: new Date().toISOString()
     });
     return result;
-  } catch (error: any) {
+  } catch (err) {
     await supabase.from('idempotency_keys').upsert({
       id: key,
       owner_id: ownerId,
       resource_type: resourceType,
       status: 'failed',
-      response: { error: error.message },
+      response: { error: 'failed' },
       updated_at: new Date().toISOString()
     });
-    throw error;
+    throw err;
   }
 }

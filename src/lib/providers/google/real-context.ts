@@ -1,7 +1,7 @@
 import { StrategyContext } from './types';
 import { GoogleAccountContextProvider } from './context';
 import { createServiceClient } from '@/lib/supabase/service';
-import { decryptCredential } from '@/lib/crypto';
+import { decryptNamedSecret } from '@/lib/crypto';
 
 /**
  * Production Google Ads read-only context provider.
@@ -52,11 +52,7 @@ export class GoogleAdsReadOnlyContextProvider implements GoogleAccountContextPro
     // 3. Decrypt credentials server-side
     let accessToken: string;
     try {
-      const parsed = JSON.parse(credRow.encrypted_credentials);
-      if (!parsed.access_token) {
-        throw new Error('Missing access_token in encrypted credentials');
-      }
-      accessToken = decryptCredential(parsed.access_token);
+      accessToken = decryptNamedSecret(credRow.encrypted_credentials, 'access_token');
     } catch {
       // Covers: invalid JSON, missing fields, wrong ENCRYPTION_KEY, corrupt data
       throw new Error('GOOGLE_CONTEXT_UNAVAILABLE');

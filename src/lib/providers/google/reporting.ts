@@ -1,6 +1,6 @@
 import { GoogleAdsApi } from 'google-ads-api';
 import { createServiceClient } from '@/lib/supabase/service';
-import { decryptCredential } from '@/lib/crypto';
+import { decryptNamedSecret } from '@/lib/crypto';
 import { logSafeError } from '@/lib/errors';
 
 /**
@@ -127,9 +127,7 @@ export async function createReportingCustomer(
 
   let refreshToken: string;
   try {
-    const parsed = JSON.parse(credRow.encrypted_credentials);
-    if (!parsed.refresh_token) throw new Error('missing refresh_token');
-    refreshToken = decryptCredential(parsed.refresh_token);
+    refreshToken = decryptNamedSecret(credRow.encrypted_credentials, 'refresh_token');
   } catch {
     throw new GoogleReportingError(REPORTING_ERRORS.NOT_CONNECTED);
   }

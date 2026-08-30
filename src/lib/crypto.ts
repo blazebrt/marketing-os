@@ -56,14 +56,18 @@ export function looksEncrypted(value: string): boolean {
  */
 export function parseStoredCredentials(stored: string): Record<string, unknown> {
   const trimmed = stored.trim();
-  if (trimmed.startsWith('{')) {
-    const parsed = JSON.parse(trimmed);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      throw new Error('Invalid encrypted format');
-    }
-    return parsed as Record<string, unknown>;
+  const parsed = trimmed.startsWith('{')
+    ? JSON.parse(trimmed)
+    : JSON.parse(decryptCredential(trimmed));
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Invalid encrypted format');
   }
-  return JSON.parse(decryptCredential(trimmed)) as Record<string, unknown>;
+  const out: Record<string, unknown> = Object.create(null);
+  for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+    if (key === '__proto__' || key === 'prototype' || key === 'constructor') continue;
+    out[key] = value;
+  }
+  return out;
 }
 
 export function revealStoredSecret(value: unknown): string | null {
@@ -75,6 +79,13 @@ export function revealStoredSecret(value: unknown): string | null {
       return null;
     }
   }
+  return value;
+}
+
+export function decryptNamedSecret(stored: string, field: string): string {
+  const record = parseStoredCredentials(stored);
+  const value = revealStoredSecret(record[field]);
+  if (!value) throw new Error('missing credential field');
   return value;
 }
 

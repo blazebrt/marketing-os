@@ -31,7 +31,8 @@ export default async function LeadsPage() {
                 <form action={async (formData) => {
                   'use server';
                   const s = formData.get('status') as string;
-                  const r = parseFloat(formData.get('revenue') as string);
+                  const rawRevenue = formData.get('revenue');
+                  const r = typeof rawRevenue === 'string' && rawRevenue.trim() !== '' ? Number(rawRevenue) : 0;
                   await updateLead(lead.id, s, r);
                 }} className="flex items-center gap-4">
                   

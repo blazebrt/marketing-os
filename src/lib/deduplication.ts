@@ -1,19 +1,25 @@
 import { createClient } from './supabase/server';
 
-export async function processIncomingLead(leadData: any) {
+export async function processIncomingLead(leadData: {
+  phone?: string;
+  email?: string;
+  name?: string;
+  landing_session_id?: string;
+}) {
   const supabase = await createClient();
-  
-  // Normalize identifiers
-  const normalizedPhone = leadData.phone ? leadData.phone.replace(/\D/g, '') : null;
-  const normalizedEmail = leadData.email ? leadData.email.trim().toLowerCase() : null;
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Unauthorized');
 
-  // 1. Try to find exact existing match (never aggressively merge)
+  const normalizedPhone = leadData.phone ? leadData.phone.replace(/\D/g, '').slice(0, 32) : null;
+  const normalizedEmail = leadData.email ? leadData.email.trim().toLowerCase().slice(0, 320) : null;
+
   let existingLeadId = null;
 
   if (normalizedPhone) {
     const { data: phoneMatch } = await supabase
       .from('leads')
       .select('id')
+      .eq('owner_id', user.id)
       .eq('normalized_phone', normalizedPhone)
       .single();
     if (phoneMatch) existingLeadId = phoneMatch.id;
@@ -23,27 +29,28 @@ export async function processIncomingLead(leadData: any) {
     const { data: emailMatch } = await supabase
       .from('leads')
       .select('id')
+      .eq('owner_id', user.id)
       .eq('normalized_email', normalizedEmail)
       .single();
     if (emailMatch) existingLeadId = emailMatch.id;
   }
 
-  // 2. Fetch First-Touch Attribution if session exists
-  let attributionData = {};
+  let attributionData: Record<string, unknown> = {};
   if (leadData.landing_session_id) {
     const { data: interaction } = await supabase
       .from('marketing_interactions')
       .select('*')
+      .eq('owner_id', user.id)
       .eq('session_id', leadData.landing_session_id)
       .order('created_at', { ascending: true })
       .limit(1)
-      .single();
-      
+      .maybeSingle();
+
     if (interaction) {
       attributionData = {
-        campaign_name: interaction.campaign_id, // simplified mapping
-        ad_group_name: interaction.ad_group_id,
-        ad_name: interaction.ad_id,
+        campaign_name: interaction.campaign_name,
+        ad_group_name: interaction.ad_group_name,
+        ad_name: interaction.ad_name,
         creative_id: interaction.creative_id,
         utm_source: interaction.utm_source,
         utm_medium: interaction.utm_medium,
@@ -55,27 +62,27 @@ export async function processIncomingLead(leadData: any) {
   }
 
   const upsertData = {
-    name: leadData.name,
-    phone: leadData.phone,
-    email: leadData.email,
+    name: typeof leadData.name === 'string' ? leadData.name.slice(0, 200) : null,
+    phone: leadData.phone || null,
+    email: leadData.email || null,
     normalized_phone: normalizedPhone,
     normalized_email: normalizedEmail,
-    landing_session_id: leadData.landing_session_id,
+    landing_session_id: leadData.landing_session_id || null,
     ...attributionData,
   };
 
   if (existingLeadId) {
-    // Update existing lead safely (only update missing fields or status)
-    await supabase.from('leads').update(upsertData).eq('id', existingLeadId);
+    await supabase.from('leads').update(upsertData).eq('id', existingLeadId).eq('owner_id', user.id);
     return { success: true, leadId: existingLeadId, action: 'updated' };
-  } else {
-    // Create new lead
-    const { data, error } = await supabase.from('leads').insert({
-      ...upsertData,
-      status: 'NEW'
-    }).select('id').single();
-    
-    if (error) throw error;
-    return { success: true, leadId: data.id, action: 'inserted' };
   }
+
+  const { data, error } = await supabase.from('leads').insert({
+    ...upsertData,
+    owner_id: user.id,
+    status: 'NEW',
+    revenue_amount: 0,
+  }).select('id').single();
+
+  if (error) throw error;
+  return { success: true, leadId: data.id, action: 'inserted' };
 }

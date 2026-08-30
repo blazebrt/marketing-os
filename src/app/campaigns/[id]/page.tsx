@@ -20,7 +20,11 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
     .single();
   if (!campaign) return redirect('/campaigns');
 
-  const { data: deployments } = await supabase.from('channel_deployments').select('*').eq('campaign_id', id);
+  const { data: deployments } = await supabase
+    .from('channel_deployments')
+    .select('*')
+    .eq('campaign_id', id)
+    .eq('owner_id', user.id);
 
   let verification: { checks: { name: string; pass: boolean; message: string }[]; allPass: boolean } | null = null;
   if (campaign.status === 'DRAFT' || campaign.status === 'PENDING_APPROVAL') {
